@@ -7,6 +7,7 @@ import { Suspense, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useIsClient } from "@/lib/use-is-client";
 
+import { ConfirmDialog } from "./confirm-dialog";
 import { Logo } from "./logo";
 import { NotificationBell } from "./notifications";
 import { Button, ButtonLink, Container } from "./ui";
@@ -50,13 +51,15 @@ export function Navbar() {
   const router = useRouter();
   const isClient = useIsClient();
   const [open, setOpen] = useState(false);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
 
   const links = session ? linksByRole[session.role] : linksByRole.anonymous;
   const close = () => setOpen(false);
 
   async function handleLogout() {
-    setOpen(false);
     await logout();
+    setConfirmingLogout(false);
+    setOpen(false);
     router.push("/");
   }
 
@@ -78,7 +81,7 @@ export function Navbar() {
         <span className="hidden text-sm text-slate-600 lg:inline">
           {displayName ?? (session.role === "doctor" ? "Doctor" : "Patient")}
         </span>
-        <Button variant="secondary" size="sm" onClick={handleLogout}>
+        <Button variant="secondary" size="sm" onClick={() => setConfirmingLogout(true)}>
           Log out
         </Button>
       </div>
@@ -119,6 +122,18 @@ export function Navbar() {
             <div className="mt-2 border-t border-slate-200 pt-3">{accountArea}</div>
           </Container>
         </div>
+      )}
+      {confirmingLogout && (
+        <ConfirmDialog
+          title="Log out?"
+          confirmLabel="Log out"
+          busyLabel="Logging out…"
+          cancelLabel="Stay logged in"
+          onConfirm={handleLogout}
+          onClose={() => setConfirmingLogout(false)}
+        >
+          <p>You&apos;ll need your email and password to log in again.</p>
+        </ConfirmDialog>
       )}
     </header>
   );

@@ -39,10 +39,9 @@ function AppointmentRow({
   onChanged: () => void;
   onCancel: (a: DoctorAppointment) => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Accept and complete can't be taken back (and tell the patient), so they're confirmed first.
-  const [confirming, setConfirming] = useState<"accept" | "complete" | null>(null);
+  // Accept and complete can't be taken back (and tell the patient), and reopening a time lets
+  // patients book it, so they're confirmed first.
+  const [confirming, setConfirming] = useState<"accept" | "complete" | "reopen" | null>(null);
   const { status, slot } = appointment;
   const started = now !== null && hasStarted(slot, now);
   const patientName = appointment.patient.full_name ?? `Patient #${appointment.patient_id}`;
@@ -54,17 +53,10 @@ function AppointmentRow({
     onChanged();
   }
 
-  async function act(action: "reopen") {
-    setBusy(action);
-    setError(null);
-    try {
-      await api(`/doctors/me/slots/${slot.id}/${action}`, { method: "PATCH" });
-      onChanged();
-    } catch (e) {
-      setError(messageOf(e));
-    } finally {
-      setBusy(null);
-    }
+  async function reopen() {
+    await api(`/doctors/me/slots/${slot.id}/reopen`, { method: "PATCH" });
+    setConfirming(null);
+    onChanged();
   }
 
   return (
@@ -95,11 +87,6 @@ function AppointmentRow({
           {status === "cancelled" && slot.is_blocked && (
             <p className="mt-2 text-sm text-slate-600">This time is withdrawn from your schedule.</p>
           )}
-          {error && (
-            <div className="mt-3">
-              <Alert tone="error">{error}</Alert>
-            </div>
-          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -108,18 +95,14 @@ function AppointmentRow({
               {appointment.history_access?.open ? "Patient history" : "Your consultation record"}
             </ButtonLink>
           )}
-          {status === "pending" && (
-            <Button onClick={() => setConfirming("accept")} disabled={busy !== null}>
-              Accept
-            </Button>
-          )}
+          {status === "pending" && <Button onClick={() => setConfirming("accept")}>Accept</Button>}
           {status === "confirmed" && (
             <>
               <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
               <Button
                 variant="secondary"
                 onClick={() => setConfirming("complete")}
-                disabled={busy !== null || !started}
+                disabled={!started}
                 title={started ? undefined : "Available once the appointment's start time has passed"}
               >
                 Mark completed
@@ -127,13 +110,13 @@ function AppointmentRow({
             </>
           )}
           {(status === "pending" || status === "confirmed") && (
-            <Button variant="danger" onClick={() => onCancel(appointment)} disabled={busy !== null}>
+            <Button variant="danger" onClick={() => onCancel(appointment)}>
               Cancel
             </Button>
           )}
           {status === "cancelled" && slot.is_blocked && (
-            <Button variant="secondary" onClick={() => act("reopen")} disabled={busy !== null || started}>
-              {busy === "reopen" ? "Reopening…" : "Reopen this time"}
+            <Button variant="secondary" onClick={() => setConfirming("reopen")} disabled={started}>
+              Reopen this time
             </Button>
           )}
         </div>
@@ -165,6 +148,20 @@ function AppointmentRow({
             <span className="font-semibold text-ink">{patientName}</span> · <span className="font-semibold text-ink">{when}</span>
           </p>
           <p>It moves to completed and the patient is notified. This can&apos;t be undone.</p>
+        </ConfirmDialog>
+      )}
+      {confirming === "reopen" && (
+        <ConfirmDialog
+          title="Reopen this time for booking?"
+          confirmLabel="Reopen this time"
+          busyLabel="Reopening…"
+          onConfirm={reopen}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            <span className="font-semibold text-ink">{when}</span>
+          </p>
+          <p>Any patient can book it straight away. The cancelled appointment stays cancelled.</p>
         </ConfirmDialog>
       )}
     </Card>

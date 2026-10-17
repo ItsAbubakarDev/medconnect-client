@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { Alert, Button, Card, Container, Field, Input, PageHeader, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
@@ -409,6 +410,8 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
   const [busy, setBusy] = useState<number | string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [changes, setChanges] = useState<ScheduleChanges | null>(null);
+  // Taking a day off / working it after all changes many times at once, so it's asked first.
+  const [asking, setAsking] = useState<"off" | "work" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -536,7 +539,7 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
               <span className="font-semibold">Day off</span>
               {off.reason ? ` — ${off.reason}` : ""}. Patients can&apos;t book {formatDate(active)}.
             </p>
-            <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => workDay(off)}>
+            <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => setAsking("work")}>
               {busy === "day" ? "Opening…" : "Work this day after all"}
             </Button>
           </div>
@@ -575,7 +578,7 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-slate-500">Booked times are in teal. To change one, use the dashboard.</p>
-              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={takeDayOff}>
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => setAsking("off")}>
                 {busy === "day" ? "Closing…" : "Take this day off"}
               </Button>
             </div>
@@ -592,6 +595,44 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
         <div className="mt-4">
           <ChangesSummary changes={changes} intro="Done." />
         </div>
+      )}
+      {asking === "off" && (
+        <ConfirmDialog
+          title={`Take ${formatDate(active)} off?`}
+          confirmLabel="Take the day off"
+          busyLabel="Closing…"
+          tone="danger"
+          onConfirm={async () => {
+            setAsking(null);
+            await takeDayOff();
+          }}
+          onClose={() => setAsking(null)}
+        >
+          <p>
+            {(() => {
+              const { open, booked } = counts(active);
+              const freeText = open ? `All ${open} free time${open > 1 ? "s close" : " closes"}` : "Free times close";
+              const bookedText = booked
+                ? ` Your ${booked} booked appointment${booked > 1 ? "s are" : " is"} kept, so cancel ${booked > 1 ? "them" : "it"} from the dashboard if you need to.`
+                : "";
+              return `${freeText} and patients can't book this day.${bookedText}`;
+            })()}
+          </p>
+        </ConfirmDialog>
+      )}
+      {asking === "work" && off && (
+        <ConfirmDialog
+          title={`Work ${formatDate(active)} after all?`}
+          confirmLabel="Open the day"
+          busyLabel="Opening…"
+          onConfirm={async () => {
+            setAsking(null);
+            await workDay(off);
+          }}
+          onClose={() => setAsking(null)}
+        >
+          <p>The day off is removed. Your usual weekly hours come back, and patients can book them straight away.</p>
+        </ConfirmDialog>
       )}
     </Card>
   );
@@ -613,6 +654,8 @@ function emptyDayMessage(date: string, schedule?: Schedule): string {
 
 type Range = { from: string; to: string; reason: string | null; ids: number[] };
 
+const rangeLabel = (from: string, to: string) => (from === to ? formatDate(from) : `${formatDate(from)} – ${formatDate(to)}`);
+
 function toRanges(days: DayOff[]): Range[] {
   const ranges: Range[] = [];
   for (const d of [...days].sort((a, b) => a.date.localeCompare(b.date))) {
@@ -633,6 +676,7 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [changes, setChanges] = useState<ScheduleChanges | null>(null);
+  const [asking, setAsking] = useState<{ type: "add" } | { type: "remove"; range: Range } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -644,8 +688,7 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
     };
   }, [version]);
 
-  async function add(e: FormEvent) {
-    e.preventDefault();
+  async function add() {
     setSaving("add");
     setError(null);
     setChanges(null);
@@ -708,7 +751,13 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
         A holiday, a conference, a week away. Free times on those days close straight away. Booked appointments are kept, and
         you&apos;ll be told about them.
       </p>
-      <form onSubmit={add} className="mt-4 grid gap-4 sm:grid-cols-[170px_170px_1fr_auto] sm:items-end">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setAsking({ type: "add" });
+        }}
+        className="mt-4 grid gap-4 sm:grid-cols-[170px_170px_1fr_auto] sm:items-end"
+      >
         <Field label="From" htmlFor="off-from">
           <Input
             id="off-from"
@@ -747,12 +796,15 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
           {ranges.map((r) => (
             <li key={r.from} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div>
-                <p className="font-semibold text-ink">
-                  {r.from === r.to ? formatDate(r.from) : `${formatDate(r.from)} – ${formatDate(r.to)}`}
-                </p>
+                <p className="font-semibold text-ink">{rangeLabel(r.from, r.to)}</p>
                 {r.reason && <p className="text-sm text-slate-600">{r.reason}</p>}
               </div>
-              <Button variant="danger" size="sm" disabled={saving !== null} onClick={() => remove(r)}>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={saving !== null}
+                onClick={() => setAsking({ type: "remove", range: r })}
+              >
                 {saving === r.from ? "Removing…" : "Remove"}
               </Button>
             </li>
@@ -770,6 +822,43 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
         <div className="mt-4">
           <ChangesSummary changes={changes} intro="Done." />
         </div>
+      )}
+      {asking?.type === "add" && (
+        <ConfirmDialog
+          title={`Take ${rangeLabel(form.from, form.to || form.from)} off?`}
+          confirmLabel="Add days off"
+          busyLabel="Adding…"
+          tone="danger"
+          onConfirm={async () => {
+            setAsking(null);
+            await add();
+          }}
+          onClose={() => setAsking(null)}
+        >
+          <p>
+            Free times on {form.to && form.to !== form.from ? "those days" : "that day"} close straight away, so patients
+            can&apos;t book them. Booked appointments are kept, and you&apos;ll be told about them.
+          </p>
+        </ConfirmDialog>
+      )}
+      {asking?.type === "remove" && (
+        <ConfirmDialog
+          title={`Remove the day${asking.range.from === asking.range.to ? "" : "s"} off on ${rangeLabel(asking.range.from, asking.range.to)}?`}
+          confirmLabel="Remove"
+          busyLabel="Removing…"
+          tone="danger"
+          onConfirm={async () => {
+            const { range } = asking;
+            setAsking(null);
+            await remove(range);
+          }}
+          onClose={() => setAsking(null)}
+        >
+          <p>
+            Your usual weekly hours come back on {asking.range.from === asking.range.to ? "that day" : "those days"}, and patients
+            can book them straight away.
+          </p>
+        </ConfirmDialog>
       )}
     </Card>
   );

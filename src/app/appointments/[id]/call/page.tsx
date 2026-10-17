@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { Alert, Button, ButtonLink, Card, Container, PageLoading } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
@@ -22,6 +23,7 @@ function Call() {
   const [joining, setJoining] = useState(false);
   const [token, setToken] = useState<VideoToken | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
   const home = session ? dashboardPath(session.role) : "/";
 
   // The token is requested on click (not on page load) so the browser's camera/microphone
@@ -43,11 +45,29 @@ function Call() {
       <Container className="py-6">
         <div className="mb-3 flex items-center justify-between gap-4">
           <h1 className="text-lg font-semibold text-ink">Video consultation</h1>
-          <ButtonLink href={home} variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={() => setLeaving(true)}>
             Back to dashboard
-          </ButtonLink>
+          </Button>
         </div>
-        <VideoRoom token={token.token} serverUrl={token.url} onLeave={() => router.push(home)} />
+        <VideoRoom
+          token={token.token}
+          serverUrl={token.url}
+          onLeave={() => router.push(home)}
+          onLeaveRequest={() => setLeaving(true)}
+        />
+        {leaving && (
+          <ConfirmDialog
+            title="Leave the consultation?"
+            confirmLabel="Leave call"
+            busyLabel="Leaving…"
+            cancelLabel="Stay in the call"
+            tone="danger"
+            onConfirm={async () => router.push(home)}
+            onClose={() => setLeaving(false)}
+          >
+            <p>Your camera and microphone switch off. You can rejoin from your dashboard while the appointment is on.</p>
+          </ConfirmDialog>
+        )}
       </Container>
     );
   }

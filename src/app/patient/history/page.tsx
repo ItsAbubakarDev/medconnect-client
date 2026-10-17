@@ -270,7 +270,9 @@ type Dialog =
   | { type: "edit-document"; document: MedicalDocument }
   | { type: "delete-entry"; entry: HealthEntry }
   | { type: "delete-document"; document: MedicalDocument }
-  | { type: "view"; document: MedicalDocument; fileId?: number };
+  | { type: "view"; document: MedicalDocument; fileId?: number }
+  | { type: "unprivate"; path: string; title: string }
+  | { type: "stop-medication"; entry: HealthEntry };
 
 function HealthRecord() {
   const params = useSearchParams();
@@ -300,8 +302,10 @@ function HealthRecord() {
     reload();
   };
 
-  async function setPrivate(path: string, isPrivate: boolean, method: "PATCH" = "PATCH") {
-    await api(path, { method, body: { is_private: isPrivate } });
+  // Hiding an item is always safe; showing it to doctors again is asked first.
+  async function setPrivate(path: string, isPrivate: boolean, title: string) {
+    if (!isPrivate) return setDialog({ type: "unprivate", path, title });
+    await api(path, { method: "PATCH", body: { is_private: true } });
     reload();
   }
 
@@ -311,7 +315,7 @@ function HealthRecord() {
       <>
         <PrivacyButton
           isPrivate={e.is_private}
-          onToggle={() => setPrivate(`/patients/me/health-entries/${e.id}`, !e.is_private)}
+          onToggle={() => setPrivate(`/patients/me/health-entries/${e.id}`, !e.is_private, e.title)}
         />
         {!doctors && (
           <>
@@ -324,17 +328,7 @@ function HealthRecord() {
           </>
         )}
         {doctors && e.kind === "medication" && e.status === "active" && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={async () => {
-              await api(`/patients/me/health-entries/${e.id}`, {
-                method: "PATCH",
-                body: { status: "stopped", end_date: clinicToday() },
-              });
-              reload();
-            }}
-          >
+          <Button variant="secondary" size="sm" onClick={() => setDialog({ type: "stop-medication", entry: e })}>
             I&apos;ve stopped it
           </Button>
         )}
@@ -345,7 +339,10 @@ function HealthRecord() {
   function documentActions(d: MedicalDocument): ReactNode {
     return (
       <>
-        <PrivacyButton isPrivate={d.is_private} onToggle={() => setPrivate(`/patients/me/documents/${d.id}`, !d.is_private)} />
+        <PrivacyButton
+          isPrivate={d.is_private}
+          onToggle={() => setPrivate(`/patients/me/documents/${d.id}`, !d.is_private, documentTitle(d))}
+        />
         {d.source === "patient" && (
           <>
             <Button variant="secondary" size="sm" onClick={() => setDialog({ type: "upload", addTo: d })}>
@@ -368,21 +365,25 @@ function HealthRecord() {
       return (
         <PrivacyButton
           isPrivate={item.isPrivate}
-          onToggle={() => setPrivate(`/patients/me/health-entries/${item.entry!.id}`, !item.isPrivate)}
+          onToggle={() => setPrivate(`/patients/me/health-entries/${item.entry!.id}`, !item.isPrivate, item.entry!.title)}
         />
       );
     if (item.document)
       return (
         <PrivacyButton
           isPrivate={item.isPrivate}
-          onToggle={() => setPrivate(`/patients/me/documents/${item.document!.id}`, !item.isPrivate)}
+          onToggle={() =>
+            setPrivate(`/patients/me/documents/${item.document!.id}`, !item.isPrivate, documentTitle(item.document!))
+          }
         />
       );
     if (item.consultation)
       return (
         <PrivacyButton
           isPrivate={item.isPrivate}
-          onToggle={() => setPrivate(`/patients/me/consultations/${item.consultation!.id}`, !item.isPrivate)}
+          onToggle={() =>
+            setPrivate(`/patients/me/consultations/${item.consultation!.id}`, !item.isPrivate, "this consultation record")
+          }
         />
       );
     return null;
@@ -472,7 +473,9 @@ function HealthRecord() {
                       actions={
                         <PrivacyButton
                           isPrivate={c.is_private}
-                          onToggle={() => setPrivate(`/patients/me/consultations/${c.id}`, !c.is_private)}
+                          onToggle={() =>
+                            setPrivate(`/patients/me/consultations/${c.id}`, !c.is_private, "this consultation record")
+                          }
                         />
                       }
                     />
@@ -553,6 +556,44 @@ function HealthRecord() {
           <p>
             Its {dialog.document.files.length} file{dialog.document.files.length > 1 ? "s are" : " is"} deleted for good, and
             doctors you share with won&apos;t see it any more. This can&apos;t be undone.
+          </p>
+        </ConfirmDialog>
+      )}
+      {dialog?.type === "unprivate" && (
+        <ConfirmDialog
+          title={`Share “${dialog.title}” with your doctors?`}
+          confirmLabel="Yes, share it"
+          busyLabel="Sharing…"
+          cancelLabel="Keep it private"
+          onConfirm={async () => {
+            await api(dialog.path, { method: "PATCH", body: { is_private: false } });
+            doneAndReload();
+          }}
+          onClose={close}
+        >
+          <p>
+            It stops being private. Doctors you&apos;re sharing your history with through an appointment can see it straight away,
+            unless you untick it on that appointment&apos;s sharing page.
+          </p>
+        </ConfirmDialog>
+      )}
+      {dialog?.type === "stop-medication" && (
+        <ConfirmDialog
+          title={`Mark ${dialog.entry.title} as stopped?`}
+          confirmLabel="Yes, I've stopped it"
+          busyLabel="Saving…"
+          onConfirm={async () => {
+            await api(`/patients/me/health-entries/${dialog.entry.id}`, {
+              method: "PATCH",
+              body: { status: "stopped", end_date: clinicToday() },
+            });
+            doneAndReload();
+          }}
+          onClose={close}
+        >
+          <p>
+            It moves from your current medicines to past ones, with today as the end date. Your doctor prescribed it, so you
+            can&apos;t switch it back yourself.
           </p>
         </ConfirmDialog>
       )}

@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { api, messageOf } from "@/lib/api";
 import type { Consultation, OwnConsultation } from "@/lib/types";
 
+import { ConfirmDialog } from "../confirm-dialog";
 import { Alert, Button, Card, Field, Input, Textarea } from "../ui";
 
 type Med = { key: number; id: number | null; name: string; dosage: string; frequency: string; instructions: string };
@@ -40,6 +41,7 @@ export function ConsultationForm({
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null);
 
   const setMed = (key: number, patch: Partial<Med>) =>
     setMeds((list) => list.map((m) => (m.key === key ? { ...m, ...patch } : m)));
@@ -92,15 +94,12 @@ export function ConsultationForm({
   }
 
   async function removeFile(fileId: number) {
-    try {
-      const result = await api<OwnConsultation>(
-        `/doctors/me/appointments/${appointmentId}/consultation/prescription/files/${fileId}`,
-        { method: "DELETE" },
-      );
-      if (result.consultation) onSaved(result.consultation);
-    } catch (err) {
-      setMessage({ tone: "error", text: messageOf(err) });
-    }
+    const result = await api<OwnConsultation>(
+      `/doctors/me/appointments/${appointmentId}/consultation/prescription/files/${fileId}`,
+      { method: "DELETE" },
+    );
+    setRemoving(null);
+    if (result.consultation) onSaved(result.consultation);
   }
 
   return (
@@ -205,7 +204,7 @@ export function ConsultationForm({
               {existing.prescription.files.map((f) => (
                 <li key={f.id} className="flex items-center justify-between gap-2 text-sm text-slate-700">
                   <span className="truncate">{f.original_filename}</span>
-                  <Button variant="ghost" size="sm" onClick={() => removeFile(f.id)}>
+                  <Button variant="ghost" size="sm" onClick={() => setRemoving({ id: f.id, name: f.original_filename })}>
                     Remove
                   </Button>
                 </li>
@@ -228,6 +227,18 @@ export function ConsultationForm({
           {saving ? "Saving…" : existing ? "Save changes" : "Save to patient's history"}
         </Button>
       </form>
+      {removing && (
+        <ConfirmDialog
+          title={`Remove “${removing.name}”?`}
+          confirmLabel="Remove file"
+          busyLabel="Removing…"
+          tone="danger"
+          onConfirm={() => removeFile(removing.id)}
+          onClose={() => setRemoving(null)}
+        >
+          <p>It&apos;s deleted from the prescription in the patient&apos;s history. This can&apos;t be undone.</p>
+        </ConfirmDialog>
+      )}
     </Card>
   );
 }

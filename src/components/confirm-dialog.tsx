@@ -77,7 +77,10 @@ export function ConfirmDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onMouseDown={() => !busy && !justOpened() && onClose()}
+      onMouseDown={(e) => {
+        e.preventDefault(); // a press here (e.g. a double-click's second click) mustn't pull focus off the dialog
+        if (!busy && !justOpened()) onClose();
+      }}
     >
       <div
         role="alertdialog"

@@ -8,8 +8,20 @@ import { useState } from "react";
 /**
  * The in-app consultation room (LiveKit's prebuilt conference UI: video grid, mic/camera
  * controls, screen share and in-call chat). Loaded client-side only — it needs WebRTC.
+ * A click on LiveKit's Leave button goes to `onLeaveRequest` (to be confirmed) instead of
+ * hanging up; `onLeave` runs once the call has actually ended.
  */
-export default function VideoRoom({ token, serverUrl, onLeave }: { token: string; serverUrl: string; onLeave: () => void }) {
+export default function VideoRoom({
+  token,
+  serverUrl,
+  onLeave,
+  onLeaveRequest,
+}: {
+  token: string;
+  serverUrl: string;
+  onLeave: () => void;
+  onLeaveRequest: () => void;
+}) {
   const [deviceProblem, setDeviceProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +38,18 @@ export default function VideoRoom({ token, serverUrl, onLeave }: { token: string
         </p>
       )}
       {/* Video stages are conventionally dark; the rest of the site stays light. */}
-      <div data-lk-theme="default" className="h-[calc(100vh-11rem)] min-h-[480px] overflow-hidden rounded-2xl border border-slate-200">
+      <div
+        data-lk-theme="default"
+        className="h-[calc(100vh-11rem)] min-h-[480px] overflow-hidden rounded-2xl border border-slate-200"
+        onClickCapture={(e) => {
+          // Caught on the way down, before LiveKit's own handler disconnects.
+          if (e.target instanceof Element && e.target.closest(".lk-disconnect-button")) {
+            e.preventDefault();
+            e.stopPropagation();
+            onLeaveRequest();
+          }
+        }}
+      >
         <LiveKitRoom
           token={token}
           serverUrl={serverUrl}
