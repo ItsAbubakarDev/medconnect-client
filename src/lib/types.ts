@@ -84,6 +84,57 @@ export interface Availability {
   is_active: boolean;
 }
 
+export interface Schedule {
+  slot_duration_minutes: number | null; // the common appointment length; null with no sessions
+  booking_window_days: number;
+  bookable_until: string; // last day patients can currently book
+  sessions: Availability[];
+}
+
+export interface BookedOutsideHours {
+  appointment_id: number;
+  status: AppointmentStatus;
+  date: string;
+  start_time: string;
+  end_time: string;
+  patient_name: string | null;
+}
+
+/** What a schedule change did to the doctor's bookable times. */
+export interface ScheduleChanges {
+  opened: number;
+  closed: number;
+  booked_outside_hours: BookedOutsideHours[];
+}
+
+export interface ScheduleSaveResult {
+  schedule: Schedule;
+  changes: ScheduleChanges;
+}
+
+export interface DayOff {
+  id: number;
+  doctor_id: number;
+  date: string;
+  reason: string | null;
+  is_blocked: boolean;
+}
+
+export interface DaysOffResult {
+  days: DayOff[];
+  changes: ScheduleChanges;
+}
+
+export interface MySlot {
+  id: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  state: "open" | "booked" | "closed";
+  started: boolean;
+  appointment: { id: number; status: AppointmentStatus; patient_name: string | null } | null;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;

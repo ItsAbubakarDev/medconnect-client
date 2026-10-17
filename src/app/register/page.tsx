@@ -13,7 +13,7 @@ import type { Role } from "@/lib/types";
 
 const roles: { value: Role; title: string; text: string }[] = [
   { value: "patient", title: "I'm a patient", text: "Find doctors and book consultations" },
-  { value: "doctor", title: "I'm a doctor", text: "Publish availability and see patients" },
+  { value: "doctor", title: "I'm a doctor", text: "Set your hours and see patients" },
 ];
 
 function RegisterForm() {

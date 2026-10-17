@@ -99,7 +99,7 @@ export default function HomePage() {
           <div className="flex flex-col items-start gap-4 rounded-2xl bg-brand-700 px-6 py-8 text-white sm:flex-row sm:items-center sm:justify-between sm:px-10">
             <div>
               <h2 className="text-2xl font-bold">Are you a doctor?</h2>
-              <p className="mt-1 text-brand-100">Publish your availability and consult patients online.</p>
+              <p className="mt-1 text-brand-100">Set your weekly hours once and consult patients online.</p>
             </div>
             <ButtonLink href="/register?role=doctor" variant="secondary" size="lg">
               Join as a doctor

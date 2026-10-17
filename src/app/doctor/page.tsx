@@ -255,7 +255,7 @@ function DoctorDashboard() {
           <EmptyState title={filtered ? "No appointments match these filters" : "No upcoming appointments"}>
             {!filtered && (
               <>
-                Patients can only book times you have published.{" "}
+                Patients can book any time within your weekly hours.{" "}
                 <Link href="/doctor/availability" className="font-semibold text-brand-700 hover:underline">
                   Set your availability
                 </Link>
