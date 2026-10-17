@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancelDialog } from "@/components/cancel-dialog";
 import { CancellationInfo } from "@/components/cancellation-info";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
-import { Alert, Button, ButtonLink, Card, Container, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, ButtonLink, Card, Container, EmptyState, Field, Input, PageHeader, PageLoading, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
@@ -26,11 +27,14 @@ const STATUS_FILTERS: { value: "" | AppointmentStatus; label: string }[] = [
 function AppointmentRow({
   appointment,
   now,
+  highlighted,
   onChanged,
   onCancel,
 }: {
   appointment: DoctorAppointment;
   now: number | null;
+  /** Opened from a notification: outlined so it's easy to spot. */
+  highlighted: boolean;
   onChanged: () => void;
   onCancel: (a: DoctorAppointment) => void;
 }) {
@@ -55,8 +59,8 @@ function AppointmentRow({
   }
 
   return (
-    <Card>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <Card className={highlighted ? "ring-2 ring-brand-600" : ""}>
+      <div id={`appointment-${appointment.id}`} className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-lg font-semibold text-ink">
@@ -131,6 +135,20 @@ function DoctorDashboard() {
   // cancellations show up without a reload.
   const liveTick = useLiveRefresh(10_000);
 
+  // ?appointment=ID&date=YYYY-MM-DD: opened from a notification — show that day (past days
+  // aren't in the default list) and point at the appointment. Applied once per link, so
+  // changing the filters afterwards isn't overridden.
+  const searchParams = useSearchParams();
+  const focusId = Number(searchParams.get("appointment")) || null;
+  const focusDate = searchParams.get("date");
+  const focusKey = focusId !== null ? `${focusId}|${focusDate ?? ""}` : null;
+  const [appliedFocus, setAppliedFocus] = useState<string | null>(null);
+  if (focusKey !== null && focusKey !== appliedFocus) {
+    setAppliedFocus(focusKey);
+    setStatusFilter("");
+    setDateFilter(focusDate && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? focusDate : "");
+  }
+
   const listKey = `${statusFilter}|${dateFilter}|${version}|${liveTick}`;
   const [list, setList] = useState<{ key: string; data?: DoctorAppointment[]; error?: string } | null>(null);
   const [overview, setOverview] = useState<DoctorAppointment[] | null>(null);
@@ -178,6 +196,10 @@ function DoctorDashboard() {
   }, [overview, today]);
 
   const current = list; // the previous result stays visible while a refresh is in flight
+  const focusLoaded = focusId !== null && current?.data?.some((a) => a.id === focusId);
+  useEffect(() => {
+    if (focusLoaded) document.getElementById(`appointment-${focusId}`)?.scrollIntoView({ block: "center" });
+  }, [focusLoaded, focusId]);
   const refresh = () => setVersion((v) => v + 1);
   const filtered = statusFilter !== "" || dateFilter !== "";
 
@@ -264,7 +286,14 @@ function DoctorDashboard() {
           </EmptyState>
         )}
         {current?.data?.map((a) => (
-          <AppointmentRow key={a.id} appointment={a} now={now} onChanged={refresh} onCancel={setCancelling} />
+          <AppointmentRow
+            key={a.id}
+            appointment={a}
+            now={now}
+            highlighted={a.id === focusId}
+            onChanged={refresh}
+            onCancel={setCancelling}
+          />
         ))}
       </div>
 
@@ -285,7 +314,9 @@ function DoctorDashboard() {
 export default function DoctorPage() {
   return (
     <RequireRole role="doctor">
-      <DoctorDashboard />
+      <Suspense fallback={<PageLoading />}>
+        <DoctorDashboard />
+      </Suspense>
     </RequireRole>
   );
 }

@@ -19,10 +19,13 @@ const slotKey = (a: Appointment) => `${a.slot.date}T${a.slot.start_time}`;
 function AppointmentItem({
   appointment,
   doctor,
+  highlighted,
   onChanged,
 }: {
   appointment: Appointment;
   doctor: DoctorPublic | null | undefined;
+  /** Opened from a notification: outlined so it's easy to spot. */
+  highlighted: boolean;
   onChanged: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -43,8 +46,8 @@ function AppointmentItem({
   }
 
   return (
-    <Card>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <Card className={highlighted ? "ring-2 ring-brand-600" : ""}>
+      <div id={`appointment-${appointment.id}`} className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/doctors/${appointment.doctor_id}`} className="truncate text-lg font-semibold text-ink hover:text-brand-700">
@@ -93,7 +96,11 @@ function AppointmentItem({
 
 function PatientDashboard() {
   const { displayName, profileLoaded } = useAuth();
-  const bookedId = useSearchParams().get("booked");
+  const searchParams = useSearchParams();
+  const bookedId = searchParams.get("booked");
+  // ?appointment=ID: opened from a notification — show that appointment's tab and point at it.
+  const focusId = Number(searchParams.get("appointment")) || null;
+  const [focused, setFocused] = useState<number | null>(null);
   const [version, setVersion] = useState(0);
   const [appointments, setAppointments] = useState<{ version: number; data?: Appointment[]; error?: string } | null>(null);
   const [doctors, setDoctors] = useState<Record<number, DoctorPublic | null>>({});
@@ -144,6 +151,17 @@ function PatientDashboard() {
         .sort((a, b) => slotKey(b).localeCompare(slotKey(a))),
     };
   }, [list]);
+
+  if (focusId !== null && focusId !== focused && list) {
+    const target = list.find((a) => a.id === focusId);
+    if (target) {
+      setFocused(focusId);
+      setTab(target.status === "pending" || target.status === "confirmed" ? "upcoming" : "history");
+    }
+  }
+  useEffect(() => {
+    if (focused !== null) document.getElementById(`appointment-${focused}`)?.scrollIntoView({ block: "center" });
+  }, [focused, tab]);
 
   const shown = tab === "upcoming" ? upcoming : history;
 
@@ -200,7 +218,13 @@ function PatientDashboard() {
           </EmptyState>
         )}
         {shown.map((a) => (
-          <AppointmentItem key={a.id} appointment={a} doctor={doctors[a.doctor_id]} onChanged={() => setVersion((v) => v + 1)} />
+          <AppointmentItem
+            key={a.id}
+            appointment={a}
+            doctor={doctors[a.doctor_id]}
+            highlighted={a.id === focusId}
+            onChanged={() => setVersion((v) => v + 1)}
+          />
         ))}
       </div>
     </Container>

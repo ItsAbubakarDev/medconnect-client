@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+/** Fired on window whenever the signed-in user's notifications change (see notifications.tsx):
+ * something happened to one of their appointments, so open pages refetch at once. */
+export const LIVE_EVENT = "mc:live";
+
 // Throttles the "come back" triggers: switching back to a tab fires both visibilitychange
 // and focus, which should cause one refetch, not two.
 const MIN_GAP_MS = 2_000;
@@ -12,7 +16,8 @@ const MIN_GAP_MS = 2_000;
  * reload. Add it to a fetch effect's dependencies.
  *
  * Ticks every `intervalMs` while the tab is visible, and immediately when the tab becomes
- * visible again, the window regains focus, or the network comes back. Hidden tabs don't poll.
+ * visible again, the window regains focus, the network comes back, or a notification arrives
+ * (LIVE_EVENT — usually well before the next interval). Hidden tabs don't poll.
  */
 export function useLiveRefresh(intervalMs: number): number {
   const [tick, setTick] = useState(0);
@@ -46,16 +51,19 @@ export function useLiveRefresh(intervalMs: number): number {
     };
     const onFocus = () => bumpSoon();
     const onOnline = () => bumpSoon();
+    const onLive = () => bump();
 
     if (document.visibilityState === "visible") start();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     window.addEventListener("online", onOnline);
+    window.addEventListener(LIVE_EVENT, onLive);
     return () => {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
+      window.removeEventListener(LIVE_EVENT, onLive);
     };
   }, [intervalMs]);
 

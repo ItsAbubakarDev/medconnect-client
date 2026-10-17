@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { useIsClient } from "@/lib/use-is-client";
 
 import { Logo } from "./logo";
+import { NotificationBell } from "./notifications";
 import { Button, ButtonLink, Container } from "./ui";
 
 const linksByRole = {
@@ -96,15 +97,19 @@ export function Navbar() {
       <Container className="flex h-16 items-center justify-between gap-4">
         <Logo />
         <nav className="hidden items-center gap-1 md:flex">{navLinks}</nav>
-        <div className="hidden md:block">{accountArea}</div>
-        <button
-          type="button"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-ink md:hidden"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {open ? "Close" : "Menu"}
-        </button>
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* Outside the mobile menu, so the unread count is always in view. */}
+          {session && <NotificationBell />}
+          <div className="hidden md:block">{accountArea}</div>
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-ink md:hidden"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+          >
+            {open ? "Close" : "Menu"}
+          </button>
+        </div>
       </Container>
       {open && (
         <div className="border-t border-slate-200 md:hidden">

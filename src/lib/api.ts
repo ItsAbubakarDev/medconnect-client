@@ -145,9 +145,11 @@ interface RequestOptions {
   body?: unknown;
   /** Send the access token (default true). Public endpoints and login pass false. */
   auth?: boolean;
+  /** Aborts the request (e.g. a long poll when the page goes away). */
+  signal?: AbortSignal;
 }
 
-export async function api<T>(path: string, { method = "GET", body, auth = true }: RequestOptions = {}): Promise<T> {
+export async function api<T>(path: string, { method = "GET", body, auth = true, signal }: RequestOptions = {}): Promise<T> {
   const send = async () => {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -158,8 +160,10 @@ export async function api<T>(path: string, { method = "GET", body, auth = true }
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
       });
-    } catch {
+    } catch (e) {
+      if (signal?.aborted) throw e;
       throw new ApiError(0, "Can't reach the MedConnect server. Make sure the backend is running.");
     }
   };

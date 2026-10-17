@@ -3,7 +3,9 @@ import { Inter } from "next/font/google";
 
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
+import { NotificationToast } from "@/components/notifications";
 import { AuthProvider } from "@/lib/auth";
+import { NotificationsProvider } from "@/lib/notifications";
 
 import "./globals.css";
 
@@ -19,9 +21,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col font-sans">
         <AuthProvider>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
+          <NotificationsProvider>
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+            <NotificationToast />
+          </NotificationsProvider>
         </AuthProvider>
       </body>
     </html>

@@ -148,3 +148,38 @@ export interface VideoToken {
   identity: string;
   expires_at: string;
 }
+
+export type NotificationType =
+  | "booking_requested"
+  | "appointment_confirmed"
+  | "appointment_completed"
+  | "request_not_confirmed"
+  | "reminder_day_before"
+  | "new_booking"
+  | "request_needs_attention"
+  | "needs_completion"
+  | "appointment_cancelled"
+  | "reminder_starting_soon"
+  | "call_joined";
+
+export interface AppNotification {
+  id: number;
+  type: NotificationType;
+  title: string;
+  body: string;
+  created_at: string; // ISO timestamp
+  read_at: string | null;
+  /** The appointment as it is now (live status), not when the notification was written. */
+  appointment: { id: number; status: AppointmentStatus; date: string; start_time: string; end_time: string } | null;
+}
+
+export interface NotificationState {
+  cursor: string;
+  unread_count: number;
+  latest_id: number;
+}
+
+export interface NotificationPage extends NotificationState {
+  items: AppNotification[];
+  has_more: boolean;
+}
