@@ -16,6 +16,7 @@ const linksByRole = {
   patient: [
     { href: "/doctors", label: "Find doctors" },
     { href: "/patient", label: "My appointments" },
+    { href: "/patient/history", label: "Health record" },
     { href: "/patient/profile", label: "Profile" },
   ],
   doctor: [

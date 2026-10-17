@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancelDialog } from "@/components/cancel-dialog";
 import { CancellationInfo } from "@/components/cancellation-info";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, Field, Input, PageHeader, PageLoading, Select } from "@/components/ui";
@@ -40,16 +41,24 @@ function AppointmentRow({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Accept and complete can't be taken back (and tell the patient), so they're confirmed first.
+  const [confirming, setConfirming] = useState<"accept" | "complete" | null>(null);
   const { status, slot } = appointment;
   const started = now !== null && hasStarted(slot, now);
+  const patientName = appointment.patient.full_name ?? `Patient #${appointment.patient_id}`;
+  const when = `${formatDate(slot.date)} at ${formatTime(slot.start_time)}`;
 
-  async function act(action: "accept" | "complete" | "reopen") {
+  async function confirmAction() {
+    await api(`/appointments/${appointment.id}/${confirming}`, { method: "PATCH" });
+    setConfirming(null);
+    onChanged();
+  }
+
+  async function act(action: "reopen") {
     setBusy(action);
     setError(null);
     try {
-      const path =
-        action === "reopen" ? `/doctors/me/slots/${slot.id}/reopen` : `/appointments/${appointment.id}/${action}`;
-      await api(path, { method: "PATCH" });
+      await api(`/doctors/me/slots/${slot.id}/${action}`, { method: "PATCH" });
       onChanged();
     } catch (e) {
       setError(messageOf(e));
@@ -77,6 +86,12 @@ function AppointmentRow({
             </p>
           )}
           <CancellationInfo appointment={appointment} viewer="doctor" />
+          {appointment.history_access?.reason === "pending" && (
+            <p className="mt-2 text-sm text-slate-600">The patient&apos;s medical history opens once you accept.</p>
+          )}
+          {appointment.history_access?.reason === "revoked" && status !== "cancelled" && (
+            <p className="mt-2 text-sm text-slate-600">The patient isn&apos;t sharing their medical history for this appointment.</p>
+          )}
           {status === "cancelled" && slot.is_blocked && (
             <p className="mt-2 text-sm text-slate-600">This time is withdrawn from your schedule.</p>
           )}
@@ -88,9 +103,14 @@ function AppointmentRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
+          {(appointment.history_access?.open || appointment.has_consultation) && (
+            <ButtonLink href={`/doctor/appointments/${appointment.id}`} variant="secondary">
+              {appointment.history_access?.open ? "Patient history" : "Your consultation record"}
+            </ButtonLink>
+          )}
           {status === "pending" && (
-            <Button onClick={() => act("accept")} disabled={busy !== null}>
-              {busy === "accept" ? "Accepting…" : "Accept"}
+            <Button onClick={() => setConfirming("accept")} disabled={busy !== null}>
+              Accept
             </Button>
           )}
           {status === "confirmed" && (
@@ -98,11 +118,11 @@ function AppointmentRow({
               <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
               <Button
                 variant="secondary"
-                onClick={() => act("complete")}
+                onClick={() => setConfirming("complete")}
                 disabled={busy !== null || !started}
                 title={started ? undefined : "Available once the appointment's start time has passed"}
               >
-                {busy === "complete" ? "Saving…" : "Mark completed"}
+                Mark completed
               </Button>
             </>
           )}
@@ -118,6 +138,35 @@ function AppointmentRow({
           )}
         </div>
       </div>
+
+      {confirming === "accept" && (
+        <ConfirmDialog
+          title="Accept this appointment?"
+          confirmLabel="Accept appointment"
+          busyLabel="Accepting…"
+          onConfirm={confirmAction}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            <span className="font-semibold text-ink">{patientName}</span> · <span className="font-semibold text-ink">{when}</span>
+          </p>
+          <p>The patient will be notified that it&apos;s confirmed, and you&apos;ll both be able to join the video call.</p>
+        </ConfirmDialog>
+      )}
+      {confirming === "complete" && (
+        <ConfirmDialog
+          title="Mark this consultation as completed?"
+          confirmLabel="Mark completed"
+          busyLabel="Saving…"
+          onConfirm={confirmAction}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            <span className="font-semibold text-ink">{patientName}</span> · <span className="font-semibold text-ink">{when}</span>
+          </p>
+          <p>It moves to completed and the patient is notified. This can&apos;t be undone.</p>
+        </ConfirmDialog>
+      )}
     </Card>
   );
 }

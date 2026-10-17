@@ -29,8 +29,15 @@ export interface Appointment {
   slot: Slot;
 }
 
+export interface PatientAppointment extends Appointment {
+  sharing: SharingSummary | null;
+}
+
 export interface DoctorAppointment extends Appointment {
   patient: { id: number; full_name: string | null };
+  /** Whether the patient's shared history can be opened from this appointment right now. */
+  history_access: AccessState | null;
+  has_consultation: boolean;
 }
 
 export interface DoctorProfile {
@@ -160,7 +167,9 @@ export type NotificationType =
   | "needs_completion"
   | "appointment_cancelled"
   | "reminder_starting_soon"
-  | "call_joined";
+  | "call_joined"
+  | "history_updated"
+  | "consultation_added";
 
 export interface AppNotification {
   id: number;
@@ -182,4 +191,168 @@ export interface NotificationState {
 export interface NotificationPage extends NotificationState {
   items: AppNotification[];
   has_more: boolean;
+}
+
+// ---- medical history
+
+export type BloodGroup = "A+" | "A-" | "B+" | "B-" | "AB+" | "AB-" | "O+" | "O-";
+export type HealthEntryKind = "allergy" | "condition" | "medication" | "diagnosis" | "surgery" | "note";
+export type EntryStatus = "active" | "stopped" | "resolved";
+export type AllergySeverity = "mild" | "moderate" | "severe";
+export type RecordSource = "patient" | "consultation";
+export type DocumentType = "prescription" | "lab_report" | "xray" | "scan" | "other";
+
+export interface MedicalProfile {
+  id: number;
+  blood_group: BloodGroup | null;
+  height_cm: string | null; // Decimal, as a string
+  weight_kg: string | null;
+  is_private: boolean;
+  updated_at: string;
+}
+
+export interface HealthEntry {
+  id: number;
+  kind: HealthEntryKind;
+  title: string;
+  details: string | null;
+  entry_date: string | null;
+  end_date: string | null;
+  status: EntryStatus | null;
+  severity: AllergySeverity | null;
+  reaction: string | null;
+  dosage: string | null;
+  frequency: string | null;
+  provider_name: string | null;
+  is_private: boolean;
+  source: RecordSource;
+  consultation_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentFile {
+  id: number;
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  has_preview: boolean;
+  is_dicom: boolean;
+  series_uid: string | null;
+  series_description: string | null;
+  instance_number: number | null;
+  uploaded_at: string;
+}
+
+export interface MedicalDocument {
+  id: number;
+  patient_id: number;
+  appointment_id: number | null;
+  document_type: DocumentType;
+  title: string | null;
+  description: string | null;
+  report_date: string;
+  provider_name: string | null;
+  is_private: boolean;
+  source: RecordSource;
+  consultation_id: number | null;
+  modality: string | null;
+  modality_name: string | null;
+  body_part: string | null;
+  uploaded_at: string;
+  updated_at: string;
+  files: DocumentFile[];
+}
+
+export interface Consultation {
+  id: number;
+  appointment_id: number;
+  doctor_id: number;
+  doctor_name: string | null;
+  doctor_specialty: string | null;
+  visit_date: string;
+  diagnosis: string;
+  notes: string | null;
+  follow_up: string | null;
+  is_private: boolean;
+  is_own: boolean; // written by the doctor who is viewing
+  medications: HealthEntry[];
+  prescription: MedicalDocument | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MedicalHistory {
+  profile: MedicalProfile | null;
+  entries: HealthEntry[];
+  documents: MedicalDocument[];
+  consultations: Consultation[];
+}
+
+export type ShareItemType = "profile" | "entry" | "document" | "consultation";
+export interface ShareItemRef {
+  type: ShareItemType;
+  id: number;
+}
+
+export interface AccessState {
+  open: boolean;
+  /** Why it's closed: pending (opens on accept), cancelled, revoked, expired. */
+  reason: "pending" | "cancelled" | "revoked" | "expired" | null;
+  ends_on: string;
+}
+
+export interface AccessLogEntry {
+  action: "viewed_history" | "viewed_document" | "downloaded_document";
+  document_id: number | null;
+  document_title: string | null;
+  times: number;
+  first_at: string;
+  last_at: string;
+}
+
+export interface Sharing {
+  appointment_id: number;
+  status: "active" | "revoked";
+  ended_reason: "patient" | "cancelled" | null;
+  ended_at: string | null;
+  access: AccessState;
+  excluded: ShareItemRef[];
+  log: AccessLogEntry[];
+}
+
+export interface SharingSummary {
+  status: "active" | "revoked";
+  access: AccessState;
+  excluded_count: number;
+  doctor_views: number;
+  last_viewed_at: string | null;
+}
+
+export interface PatientSummary {
+  id: number;
+  full_name: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+}
+
+export interface AppointmentSummary {
+  id: number;
+  status: AppointmentStatus;
+  date: string;
+  start_time: string;
+  end_time: string;
+}
+
+export interface DoctorPatientHistory extends Omit<MedicalHistory, "profile"> {
+  patient: PatientSummary;
+  appointment: AppointmentSummary;
+  access_ends_on: string;
+  profile: MedicalProfile | null;
+}
+
+export interface OwnConsultation {
+  appointment: AppointmentSummary;
+  patient: PatientSummary;
+  consultation: Consultation | null;
 }

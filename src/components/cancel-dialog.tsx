@@ -7,6 +7,7 @@ import { api, messageOf } from "@/lib/api";
 import { formatDate, formatTime } from "@/lib/format";
 import type { CancellationReason, DoctorAppointment } from "@/lib/types";
 
+import { ARM_DELAY_MS } from "./confirm-dialog";
 import { Alert, Button, Field, Textarea } from "./ui";
 
 const reasons: { value: CancellationReason; title: string; text: string }[] = [
@@ -37,6 +38,7 @@ export function CancelDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstOption = useRef<HTMLInputElement>(null);
+  const openedAt = useRef(0);
   // The parent re-renders on a clock tick with a fresh onClose each time; keeping it in a
   // ref lets the focus/Escape setup below run once, instead of stealing focus mid-typing.
   const onCloseRef = useRef(onClose);
@@ -45,6 +47,7 @@ export function CancelDialog({
   });
 
   useEffect(() => {
+    openedAt.current = Date.now();
     firstOption.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
@@ -55,6 +58,8 @@ export function CancelDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    // A double-tap on the "Cancel" button that opened this mustn't also submit it.
+    if (Date.now() - openedAt.current < ARM_DELAY_MS) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -70,7 +75,10 @@ export function CancelDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onMouseDown={() => Date.now() - openedAt.current >= ARM_DELAY_MS && onClose()}
+    >
       <div
         role="dialog"
         aria-modal="true"

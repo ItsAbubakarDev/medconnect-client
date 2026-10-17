@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancellationInfo } from "@/components/cancellation-info";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, PageHeader, PageLoading } from "@/components/ui";
@@ -12,9 +13,34 @@ import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatDate, formatTime } from "@/lib/format";
-import type { Appointment, DoctorPublic } from "@/lib/types";
+import { timeAgo } from "@/lib/notifications";
+import type { DoctorPublic, PatientAppointment } from "@/lib/types";
+import { useNow } from "@/lib/use-now";
 
-const slotKey = (a: Appointment) => `${a.slot.date}T${a.slot.start_time}`;
+const slotKey = (a: PatientAppointment) => `${a.slot.date}T${a.slot.start_time}`;
+
+/** One line on what this appointment's doctor can see of the patient's history. */
+function SharingLine({ appointment: a, doctorName }: { appointment: PatientAppointment; doctorName: string }) {
+  const now = useNow();
+  const s = a.sharing;
+  if (!s || a.status === "cancelled") return null;
+  const access = s.access;
+  let text: string;
+  if (s.status === "revoked") text = "You stopped sharing your medical history for this appointment.";
+  else if (access.reason === "pending") text = `Your medical history will be shared with ${doctorName} once they accept.`;
+  else if (access.reason === "expired") text = "The follow-up period has ended; your history is no longer shared.";
+  else text = `Your medical history is shared with ${doctorName} until ${formatDate(access.ends_on)}${s.excluded_count ? ` (${s.excluded_count} item${s.excluded_count > 1 ? "s" : ""} left out)` : ""}.`;
+  const viewed = s.doctor_views > 0 && s.last_viewed_at && now !== null ? ` Viewed ${s.doctor_views} time${s.doctor_views > 1 ? "s" : ""}, last ${timeAgo(s.last_viewed_at, now)}.` : "";
+  return (
+    <p className="mt-2 text-sm text-slate-600">
+      {text}
+      {viewed}{" "}
+      <Link href={`/patient/appointments/${a.id}/sharing`} className="font-semibold text-brand-700 hover:underline">
+        Manage sharing
+      </Link>
+    </p>
+  );
+}
 
 function AppointmentItem({
   appointment,
@@ -22,27 +48,21 @@ function AppointmentItem({
   highlighted,
   onChanged,
 }: {
-  appointment: Appointment;
+  appointment: PatientAppointment;
   doctor: DoctorPublic | null | undefined;
   /** Opened from a notification: outlined so it's easy to spot. */
   highlighted: boolean;
   onChanged: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const canCancel = appointment.status === "pending" || appointment.status === "confirmed";
+  const doctorName = doctor?.full_name ?? "your doctor";
+  const when = `${formatDate(appointment.slot.date)} at ${formatTime(appointment.slot.start_time)}`;
 
   async function cancel() {
-    setBusy(true);
-    setError(null);
-    try {
-      await api(`/appointments/${appointment.id}/cancel`, { method: "PATCH" });
-      onChanged();
-    } catch (e) {
-      setError(messageOf(e));
-      setBusy(false);
-    }
+    await api(`/appointments/${appointment.id}/cancel`, { method: "PATCH" });
+    setConfirming(false);
+    onChanged();
   }
 
   return (
@@ -64,32 +84,36 @@ function AppointmentItem({
             <p className="mt-1 text-sm text-amber-800">Waiting for the doctor to confirm.</p>
           )}
           <CancellationInfo appointment={appointment} viewer="patient" />
-          {error && (
-            <div className="mt-3">
-              <Alert tone="error">{error}</Alert>
-            </div>
-          )}
+          <SharingLine appointment={appointment} doctorName={doctor?.full_name ?? "your doctor"} />
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
           {appointment.status === "confirmed" && <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>}
-          {canCancel &&
-            (confirming ? (
-              <div className="flex gap-2">
-                <Button variant="danger" size="sm" onClick={cancel} disabled={busy}>
-                  {busy ? "Cancelling…" : "Yes, cancel"}
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setConfirming(false)} disabled={busy}>
-                  Keep
-                </Button>
-              </div>
-            ) : (
-              <Button variant="danger" onClick={() => setConfirming(true)}>
-                Cancel appointment
-              </Button>
-            ))}
+          {canCancel && (
+            <Button variant="danger" onClick={() => setConfirming(true)}>
+              Cancel appointment
+            </Button>
+          )}
         </div>
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Cancel this appointment?"
+          confirmLabel="Yes, cancel appointment"
+          busyLabel="Cancelling…"
+          cancelLabel="Keep appointment"
+          tone="danger"
+          onConfirm={cancel}
+          onClose={() => setConfirming(false)}
+        >
+          <p>
+            Your appointment with <span className="font-semibold text-ink">{doctorName}</span> on{" "}
+            <span className="font-semibold text-ink">{when}</span> will be cancelled and the doctor will be told.
+          </p>
+          <p>This can&apos;t be undone — to see them, you&apos;d need to book again (the time may be taken by then).</p>
+        </ConfirmDialog>
+      )}
     </Card>
   );
 }
@@ -102,7 +126,7 @@ function PatientDashboard() {
   const focusId = Number(searchParams.get("appointment")) || null;
   const [focused, setFocused] = useState<number | null>(null);
   const [version, setVersion] = useState(0);
-  const [appointments, setAppointments] = useState<{ version: number; data?: Appointment[]; error?: string } | null>(null);
+  const [appointments, setAppointments] = useState<{ version: number; data?: PatientAppointment[]; error?: string } | null>(null);
   const [doctors, setDoctors] = useState<Record<number, DoctorPublic | null>>({});
   const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
   // Refetch every 10s (and on returning to the tab), so a doctor accepting, cancelling or
@@ -111,7 +135,7 @@ function PatientDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    api<Appointment[]>("/appointments/me")
+    api<PatientAppointment[]>("/appointments/me")
       .then((data) => !cancelled && setAppointments({ version, data }))
       // A failed background refresh keeps the list already on screen.
       .catch((e) => !cancelled && setAppointments((prev) => (prev?.data ? prev : { version, error: messageOf(e) })));
@@ -171,9 +195,14 @@ function PatientDashboard() {
         title="My appointments"
         subtitle={displayName ? `Signed in as ${displayName}` : undefined}
         actions={
-          <ButtonLink href="/doctors" variant="accent">
-            Book a new appointment
-          </ButtonLink>
+          <>
+            <ButtonLink href="/patient/history" variant="secondary">
+              My health record
+            </ButtonLink>
+            <ButtonLink href="/doctors" variant="accent">
+              Book a new appointment
+            </ButtonLink>
+          </>
         }
       />
 

@@ -5,12 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ShareChooser } from "@/components/health/share-chooser";
 import { Alert, Avatar, Button, ButtonLink, Card, Container, Field, PageLoading, Textarea } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { addDays, clinicToday, formatDayShort, formatFee, formatTime, initials } from "@/lib/format";
+import { addDays, clinicToday, formatDate, formatDayShort, formatFee, formatTime, initials } from "@/lib/format";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import type { Appointment, DoctorPublic, Slot } from "@/lib/types";
+import type { Appointment, DoctorPublic, MedicalHistory, ShareItemType, Slot } from "@/lib/types";
 
 const DAYS_SHOWN = 14;
 
@@ -25,7 +27,12 @@ function DoctorProfile() {
   const [chosenDate, setChosenDate] = useState<string | null>(null);
   const [chosenSlot, setChosenSlot] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
-  const [booking, setBooking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // The sharing step: the patient's history (loaded when they review the booking) and what
+  // they unticked for this doctor.
+  const [myHistory, setMyHistory] = useState<MedicalHistory | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [bookError, setBookError] = useState<string | null>(null);
   // Refetch open times every 15s (and on returning to the tab), so times other patients
   // book disappear without a reload.
@@ -92,22 +99,38 @@ function DoctorProfile() {
   const isPatient = session?.role === "patient";
   const needsName = isPatient && profileLoaded && !displayName;
 
-  async function book(e: FormEvent) {
+  const slotToBook = selectedSlot !== null ? currentSlots?.find((s) => s.id === selectedSlot) : undefined;
+
+  // The button only opens the summary; nothing is booked until it's confirmed there.
+  function review(e: FormEvent) {
     e.preventDefault();
     if (selectedSlot === null) return;
-    setBooking(true);
     setBookError(null);
+    setConfirming(true);
+    if (!myHistory) {
+      api<MedicalHistory>("/patients/me/history")
+        .then(setMyHistory)
+        .catch((err) => setHistoryError(messageOf(err)));
+    }
+  }
+
+  async function book() {
+    if (!slotToBook) return;
     try {
+      const share_exclusions = [...excluded].map((key) => {
+        const [type, id] = key.split(":");
+        return { type: type as ShareItemType, id: Number(id) };
+      });
       const appt = await api<Appointment>("/appointments", {
         method: "POST",
-        body: { slot_id: selectedSlot, notes: notes.trim() || null },
+        body: { slot_id: slotToBook.id, notes: notes.trim() || null, share_exclusions },
       });
       router.push(`/patient?booked=${appt.id}`);
     } catch (err) {
+      setConfirming(false);
       setBookError(messageOf(err));
       setChosenSlot(null);
       setSlotsVersion((v) => v + 1); // the slot may have just been taken — refresh the list
-      setBooking(false);
     }
   }
 
@@ -157,7 +180,7 @@ function DoctorProfile() {
           )}
 
           {activeDate && (
-            <form onSubmit={book} className="mt-4 space-y-5">
+            <form onSubmit={review} className="mt-4 space-y-5">
               <div>
                 <p className="mb-2 text-sm font-medium text-ink">Choose a day</p>
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -227,14 +250,60 @@ function DoctorProfile() {
                   </Link>
                 </Alert>
               ) : (
-                <Button type="submit" variant="accent" size="lg" className="w-full" disabled={selectedSlot === null || booking}>
-                  {booking ? "Booking…" : selectedSlot === null ? "Select a time" : "Book appointment"}
+                <Button type="submit" variant="accent" size="lg" className="w-full" disabled={selectedSlot === null}>
+                  {selectedSlot === null ? "Select a time" : "Book appointment"}
                 </Button>
               )}
             </form>
           )}
         </Card>
       </div>
+
+      {/* Closes by itself if the time is taken meanwhile (the warning above then shows). */}
+      {confirming && slotToBook && (
+        <ConfirmDialog
+          title="Confirm your appointment"
+          confirmLabel="Confirm booking"
+          busyLabel="Booking…"
+          tone="accent"
+          onConfirm={book}
+          onClose={() => setConfirming(false)}
+        >
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg bg-slate-50 p-3">
+            <dt className="text-slate-500">Doctor</dt>
+            <dd className="break-words font-semibold text-ink">{d.full_name ?? "Doctor"}</dd>
+            <dt className="text-slate-500">Date</dt>
+            <dd className="font-semibold text-ink">{formatDate(slotToBook.date)}</dd>
+            <dt className="text-slate-500">Time</dt>
+            <dd className="font-semibold text-ink">
+              {formatTime(slotToBook.start_time)} – {formatTime(slotToBook.end_time)}
+            </dd>
+            {fee && (
+              <>
+                <dt className="text-slate-500">Fee</dt>
+                <dd className="font-semibold text-ink">{fee}</dd>
+              </>
+            )}
+            {notes.trim() && (
+              <>
+                <dt className="text-slate-500">Reason</dt>
+                <dd className="break-words text-ink">{notes.trim()}</dd>
+              </>
+            )}
+          </dl>
+          {historyError ? (
+            <Alert tone="warning">Couldn&apos;t load your health record ({historyError}). Everything that isn&apos;t private will be shared.</Alert>
+          ) : myHistory ? (
+            <ShareChooser history={myHistory} doctorName={d.full_name ?? "the doctor"} excluded={excluded} onChange={setExcluded} />
+          ) : (
+            <p className="text-slate-500">Loading your health record…</p>
+          )}
+          <p>
+            It&apos;s a video consultation. The doctor will confirm your request, and you&apos;ll be notified when they do. Your shared history becomes
+            visible to them only once they accept, and you can change or stop sharing any time from My appointments.
+          </p>
+        </ConfirmDialog>
+      )}
     </Container>
   );
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ButtonHTMLAttributes, ComponentProps, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 // Small, dependency-free UI kit. Deliberately no transitions/animations.
 
@@ -32,7 +32,7 @@ export function Button({
   className = "",
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }) {
+}: ComponentProps<"button"> & { variant?: Variant; size?: Size }) {
   return <button type={type} className={buttonClass(variant, size, className)} {...props} />;
 }
 
@@ -47,15 +47,15 @@ export function ButtonLink({
 
 const fieldBase = `block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-slate-400 ${focusRing} disabled:bg-slate-50`;
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input(props: ComponentProps<"input">) {
   return <input {...props} className={`${fieldBase} ${props.className ?? ""}`} />;
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select(props: ComponentProps<"select">) {
   return <select {...props} className={`${fieldBase} ${props.className ?? ""}`} />;
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea(props: ComponentProps<"textarea">) {
   return <textarea {...props} className={`${fieldBase} ${props.className ?? ""}`} />;
 }
 

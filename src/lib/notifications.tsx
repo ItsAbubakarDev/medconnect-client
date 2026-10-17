@@ -181,6 +181,8 @@ export function notificationHref(n: AppNotification, role: Role): string {
   if ((n.type === "call_joined" || n.type === "reminder_starting_soon") && a.status === "confirmed") {
     return `/appointments/${a.id}/call`;
   }
+  if (n.type === "history_updated") return `/doctor/appointments/${a.id}`;
+  if (n.type === "consultation_added") return "/patient/history?tab=timeline";
   return role === "doctor" ? `/doctor?appointment=${a.id}&date=${a.date}` : `/patient?appointment=${a.id}`;
 }
 

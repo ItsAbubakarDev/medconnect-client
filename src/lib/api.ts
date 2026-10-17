@@ -142,24 +142,31 @@ function refreshAccessToken(): Promise<boolean> {
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** JSON-encoded, except FormData (a file upload), which is sent as multipart. */
   body?: unknown;
+  /** "blob" for file downloads (medical files need the access token, so no plain links). */
+  responseType?: "json" | "blob";
   /** Send the access token (default true). Public endpoints and login pass false. */
   auth?: boolean;
   /** Aborts the request (e.g. a long poll when the page goes away). */
   signal?: AbortSignal;
 }
 
-export async function api<T>(path: string, { method = "GET", body, auth = true, signal }: RequestOptions = {}): Promise<T> {
+export async function api<T>(
+  path: string,
+  { method = "GET", body, auth = true, signal, responseType = "json" }: RequestOptions = {},
+): Promise<T> {
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   const send = async () => {
     const headers: Record<string, string> = {};
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     const access = auth ? tokenStore.getAccess() : null;
     if (access) headers.Authorization = `Bearer ${access}`;
     try {
       return await fetch(`${API_URL}${path}`, {
         method,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: isForm ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
         signal,
       });
     } catch (e) {
@@ -176,6 +183,7 @@ export async function api<T>(path: string, { method = "GET", body, auth = true, 
     if (res.status === 401) tokenStore.clear(); // session is over; the UI sends the user to login
   }
 
+  if (responseType === "blob" && res.ok) return (await res.blob()) as T;
   const data: unknown = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, errorMessage(data, res.status));
   return data as T;
