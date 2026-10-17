@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, PageHeader, PageLoading } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatDate, formatTime } from "@/lib/format";
 import type { Appointment, DoctorPublic } from "@/lib/types";
 
@@ -97,16 +98,20 @@ function PatientDashboard() {
   const [appointments, setAppointments] = useState<{ version: number; data?: Appointment[]; error?: string } | null>(null);
   const [doctors, setDoctors] = useState<Record<number, DoctorPublic | null>>({});
   const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
+  // Refetch every 10s (and on returning to the tab), so a doctor accepting, cancelling or
+  // completing shows up without a reload.
+  const liveTick = useLiveRefresh(10_000);
 
   useEffect(() => {
     let cancelled = false;
     api<Appointment[]>("/appointments/me")
       .then((data) => !cancelled && setAppointments({ version, data }))
-      .catch((e) => !cancelled && setAppointments({ version, error: messageOf(e) }));
+      // A failed background refresh keeps the list already on screen.
+      .catch((e) => !cancelled && setAppointments((prev) => (prev?.data ? prev : { version, error: messageOf(e) })));
     return () => {
       cancelled = true;
     };
-  }, [version]);
+  }, [version, liveTick]);
 
   const list = appointments?.data;
 

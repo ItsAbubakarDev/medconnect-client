@@ -9,6 +9,7 @@ import { Alert, Avatar, Button, ButtonLink, Card, Container, Field, PageLoading,
 import { ApiError, api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { addDays, clinicToday, formatDayShort, formatFee, formatTime, initials } from "@/lib/format";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import type { Appointment, DoctorPublic, Slot } from "@/lib/types";
 
 const DAYS_SHOWN = 14;
@@ -26,6 +27,9 @@ function DoctorProfile() {
   const [notes, setNotes] = useState("");
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
+  // Refetch open times every 15s (and on returning to the tab), so times other patients
+  // book disappear without a reload.
+  const liveTick = useLiveRefresh(15_000);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +49,12 @@ function DoctorProfile() {
     const to = addDays(from, DAYS_SHOWN - 1);
     api<Slot[]>(`/doctors/${id}/available-slots?from=${from}&to=${to}`, { auth: false })
       .then((data) => !cancelled && setSlots({ id, data }))
-      .catch(() => !cancelled && setSlots({ id, data: [] }));
+      // A failed background refresh keeps the times already on screen.
+      .catch(() => !cancelled && setSlots((prev) => (prev?.id === id ? prev : { id, data: [] })));
     return () => {
       cancelled = true;
     };
-  }, [id, slotsVersion]);
+  }, [id, slotsVersion, liveTick]);
 
   const currentDoctor = doctor?.id === id ? doctor : null;
   const currentSlots = slots?.id === id ? slots.data : null;
@@ -61,6 +66,11 @@ function DoctorProfile() {
     }
     return grouped;
   }, [currentSlots]);
+
+  // The chosen time counts only while it's still open: if a refresh shows someone else
+  // booked it, the selection is dropped and the patient is told.
+  const selectedSlot = chosenSlot !== null && currentSlots?.some((s) => s.id === chosenSlot) ? chosenSlot : null;
+  const selectionTaken = chosenSlot !== null && currentSlots !== null && selectedSlot === null;
 
   const dates = [...slotsByDate.keys()];
   const activeDate = chosenDate && slotsByDate.has(chosenDate) ? chosenDate : (dates[0] ?? null);
@@ -84,13 +94,13 @@ function DoctorProfile() {
 
   async function book(e: FormEvent) {
     e.preventDefault();
-    if (chosenSlot === null) return;
+    if (selectedSlot === null) return;
     setBooking(true);
     setBookError(null);
     try {
       const appt = await api<Appointment>("/appointments", {
         method: "POST",
-        body: { slot_id: chosenSlot, notes: notes.trim() || null },
+        body: { slot_id: selectedSlot, notes: notes.trim() || null },
       });
       router.push(`/patient?booked=${appt.id}`);
     } catch (err) {
@@ -176,7 +186,7 @@ function DoctorProfile() {
                 <legend className="mb-2 text-sm font-medium text-ink">Choose a time</legend>
                 <div className="grid grid-cols-3 gap-2">
                   {(slotsByDate.get(activeDate) ?? []).map((slot) => {
-                    const active = slot.id === chosenSlot;
+                    const active = slot.id === selectedSlot;
                     return (
                       <button
                         key={slot.id}
@@ -198,6 +208,9 @@ function DoctorProfile() {
                 </Field>
               )}
 
+              {selectionTaken && !bookError && (
+                <Alert tone="warning">The time you picked was just booked by someone else. Please choose another.</Alert>
+              )}
               {bookError && <Alert tone="error">{bookError}</Alert>}
 
               {status === "loading" ? null : !session ? (
@@ -214,8 +227,8 @@ function DoctorProfile() {
                   </Link>
                 </Alert>
               ) : (
-                <Button type="submit" variant="accent" size="lg" className="w-full" disabled={chosenSlot === null || booking}>
-                  {booking ? "Booking…" : chosenSlot === null ? "Select a time" : "Book appointment"}
+                <Button type="submit" variant="accent" size="lg" className="w-full" disabled={selectedSlot === null || booking}>
+                  {booking ? "Booking…" : selectedSlot === null ? "Select a time" : "Book appointment"}
                 </Button>
               )}
             </form>

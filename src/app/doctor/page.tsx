@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { clinicNow, formatDate, formatTime, hasStarted } from "@/lib/format";
 import type { AppointmentStatus, DoctorAppointment } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
@@ -126,8 +127,11 @@ function DoctorDashboard() {
   const [dateFilter, setDateFilter] = useState("");
   const [version, setVersion] = useState(0);
   const [cancelling, setCancelling] = useState<DoctorAppointment | null>(null);
+  // Refetch every 10s (and on returning to the tab), so new bookings and patient
+  // cancellations show up without a reload.
+  const liveTick = useLiveRefresh(10_000);
 
-  const listKey = `${statusFilter}|${dateFilter}|${version}`;
+  const listKey = `${statusFilter}|${dateFilter}|${version}|${liveTick}`;
   const [list, setList] = useState<{ key: string; data?: DoctorAppointment[]; error?: string } | null>(null);
   const [overview, setOverview] = useState<DoctorAppointment[] | null>(null);
 
@@ -138,7 +142,16 @@ function DoctorDashboard() {
     if (dateFilter) params.set("date", dateFilter);
     api<DoctorAppointment[]>(`/doctors/me/appointments${params.size ? `?${params}` : ""}`)
       .then((data) => !cancelled && setList({ key: listKey, data }))
-      .catch((e) => !cancelled && setList({ key: listKey, error: messageOf(e) }));
+      // A failed background refresh keeps the list already on screen (same filters only).
+      .catch(
+        (e) =>
+          !cancelled &&
+          setList((prev) =>
+            prev?.data && prev.key.split("|").slice(0, 2).join("|") === `${statusFilter}|${dateFilter}`
+              ? prev
+              : { key: listKey, error: messageOf(e) },
+          ),
+      );
     return () => {
       cancelled = true;
     };
@@ -153,7 +166,7 @@ function DoctorDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [version]);
+  }, [version, liveTick]);
 
   const stats = useMemo(() => {
     const all = overview ?? [];
