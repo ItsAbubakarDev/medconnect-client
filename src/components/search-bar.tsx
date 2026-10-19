@@ -6,15 +6,25 @@ import type { FormEvent } from "react";
 
 import { Button } from "./ui";
 
-/** Searches doctors by name. Specialty filtering is done with the specialty shortcuts. */
-export function SearchBar({ initialQuery = "", specialty }: { initialQuery?: string; specialty?: string }) {
+/** Searches doctors by name. Specialty filtering is done with the specialty shortcuts;
+ * `keep` carries the search page's other filters into the new search. */
+export function SearchBar({
+  initialQuery = "",
+  specialty,
+  keep,
+}: {
+  initialQuery?: string;
+  specialty?: string;
+  keep?: Record<string, string>;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(keep);
     if (query.trim()) params.set("q", query.trim());
+    else params.delete("q");
     if (specialty) params.set("specialty", specialty);
     router.push(`/doctors${params.size ? `?${params}` : ""}`);
   }

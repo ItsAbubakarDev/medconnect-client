@@ -24,6 +24,7 @@ export interface Appointment {
   cancelled_by: Role | null;
   cancellation_reason: CancellationReason | null;
   cancellation_note: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
   slot: Slot;
@@ -31,6 +32,9 @@ export interface Appointment {
 
 export interface PatientAppointment extends Appointment {
   sharing: SharingSummary | null;
+  review: OwnReview | null;
+  /** For a completed visit: until when it can be reviewed (and the review edited). */
+  review_open_until: string | null;
 }
 
 export interface DoctorAppointment extends Appointment {
@@ -50,6 +54,10 @@ export interface DoctorProfile {
   clinic_name: string | null;
   consultation_fee: string | null; // Decimal, serialised as a string
   bio: string | null;
+  city: string | null; // null = set before location existed; the dashboard asks for it
+  area: string | null;
+  clinic_address: string | null;
+  offers_online: boolean;
 }
 
 export interface DoctorPublic {
@@ -62,6 +70,15 @@ export interface DoctorPublic {
   consultation_fee: string | null;
   bio: string | null;
   profile_image_url: string | null;
+  city: string | null;
+  area: string | null;
+  clinic_address: string | null;
+  offers_online: boolean;
+  rating_average: number | null; // one decimal; null = no reviews yet ("New")
+  review_count: number;
+  /** The earliest free, bookable time; null = none within the booking window. */
+  next_available: { date: string; start_time: string } | null;
+  booking_window_days: number;
 }
 
 export interface DoctorList {
@@ -94,6 +111,7 @@ export interface Availability {
 export interface Schedule {
   slot_duration_minutes: number | null; // the common appointment length; null with no sessions
   booking_window_days: number;
+  buffer_minutes: number; // break between appointments
   bookable_until: string; // last day patients can currently book
   sessions: Availability[];
 }
@@ -112,6 +130,8 @@ export interface ScheduleChanges {
   opened: number;
   closed: number;
   booked_outside_hours: BookedOutsideHours[];
+  /** Bookings now closer to a neighbouring booking than the break. */
+  booked_too_close: BookedOutsideHours[];
 }
 
 export interface ScheduleSaveResult {
@@ -140,6 +160,8 @@ export interface MySlot {
   state: "open" | "booked" | "closed";
   started: boolean;
   appointment: { id: number; status: AppointmentStatus; patient_name: string | null } | null;
+  /** The break after this time before the next one in the session (0 for the last). */
+  break_minutes: number;
 }
 
 export interface TokenPair {
@@ -169,7 +191,9 @@ export type NotificationType =
   | "reminder_starting_soon"
   | "call_joined"
   | "history_updated"
-  | "consultation_added";
+  | "consultation_added"
+  | "review_received"
+  | "review_replied";
 
 export interface AppNotification {
   id: number;
@@ -355,4 +379,64 @@ export interface OwnConsultation {
   appointment: AppointmentSummary;
   patient: PatientSummary;
   consultation: Consultation | null;
+}
+
+// ---- reviews
+
+export interface StarCount {
+  stars: number;
+  count: number;
+}
+
+export interface RatingSummary {
+  average: number | null; // null = no reviews yet
+  count: number;
+  breakdown: StarCount[]; // 5 stars down to 1
+}
+
+export interface PublicReview {
+  id: number;
+  rating: number;
+  comment: string | null;
+  reviewer_name: string; // "Ahmed K." or "Anonymous patient"
+  visit_date: string;
+  verified_visit: boolean;
+  created_at: string;
+  reply: string | null;
+  replied_at: string | null;
+}
+
+export interface ReviewPage {
+  summary: RatingSummary;
+  items: PublicReview[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface DoctorReview extends PublicReview {
+  appointment_id: number;
+}
+
+export interface DoctorReviewPage {
+  summary: RatingSummary;
+  items: DoctorReview[]; // unreplied first
+  total: number;
+  unreplied: number;
+  page: number;
+  page_size: number;
+}
+
+export interface OwnReview {
+  id: number;
+  rating: number;
+  comment: string | null;
+  is_anonymous: boolean;
+  reviewer_name: string;
+  reply: string | null;
+  replied_at: string | null;
+  created_at: string;
+  updated_at: string;
+  editable_until: string;
+  can_edit: boolean;
 }

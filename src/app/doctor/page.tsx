@@ -14,7 +14,7 @@ import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { clinicNow, formatDate, formatTime, hasStarted } from "@/lib/format";
-import type { AppointmentStatus, DoctorAppointment } from "@/lib/types";
+import type { AppointmentStatus, DoctorAppointment, DoctorProfile, DoctorReviewPage } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
 const STATUS_FILTERS: { value: "" | AppointmentStatus; label: string }[] = [
@@ -221,6 +221,22 @@ function DoctorDashboard() {
     };
   }, [statusFilter, dateFilter, listKey]);
 
+  // The doctor's own profile (is the location set?) and rating, for the banner and tile.
+  const [me, setMe] = useState<DoctorProfile | null>(null);
+  const [reviews, setReviews] = useState<DoctorReviewPage | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api<DoctorProfile>("/doctors/me")
+      .then((p) => !cancelled && setMe(p))
+      .catch(() => {});
+    api<DoctorReviewPage>("/doctors/me/reviews?page_size=1")
+      .then((r) => !cancelled && setReviews(r))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [liveTick]);
+
   // Unfiltered "today and upcoming" view, for the summary tiles.
   useEffect(() => {
     let cancelled = false;
@@ -272,7 +288,19 @@ function DoctorDashboard() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      {me && !me.city && (
+        <div className="mt-6">
+          <Alert tone="warning">
+            Add your city and area so patients searching in your city can find you. Until then you only appear when patients
+            don&apos;t filter by city.{" "}
+            <Link href="/doctor/profile" className="font-semibold underline">
+              Complete your location
+            </Link>
+          </Alert>
+        </div>
+      )}
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: "Today's appointments", value: stats.today },
           { label: "Awaiting your confirmation", value: stats.pending },
@@ -283,6 +311,19 @@ function DoctorDashboard() {
             <p className="mt-1 text-3xl font-bold text-ink">{overview ? s.value : "–"}</p>
           </Card>
         ))}
+        <Link href="/doctor/reviews" className="block rounded-xl focus-visible:outline-2 focus-visible:outline-brand-700">
+          <Card className="h-full hover:border-brand-600">
+            <p className="text-sm text-slate-600">Your rating</p>
+            <p className="mt-1 text-3xl font-bold text-ink">
+              {!reviews ? "–" : reviews.summary.average !== null ? `★ ${reviews.summary.average.toFixed(1)}` : "New"}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              {reviews && reviews.summary.count > 0
+                ? `${reviews.summary.count} review${reviews.summary.count === 1 ? "" : "s"}${reviews.unreplied ? ` · ${reviews.unreplied} to reply to` : ""}`
+                : "No reviews yet"}
+            </p>
+          </Card>
+        </Link>
       </div>
 
       <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-start">

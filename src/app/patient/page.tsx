@@ -6,6 +6,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancellationInfo } from "@/components/cancellation-info";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Stars } from "@/components/rating";
+import { ReviewDialog, reviewWindowOpen } from "@/components/review-dialog";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, PageHeader, PageLoading } from "@/components/ui";
@@ -42,19 +44,51 @@ function SharingLine({ appointment: a, doctorName }: { appointment: PatientAppoi
   );
 }
 
+/** For a completed visit: the patient's review, or the invitation to leave one. */
+function ReviewLine({ appointment: a, onOpen }: { appointment: PatientAppointment; onOpen: () => void }) {
+  const now = useNow();
+  if (a.status !== "completed") return null;
+  const open = reviewWindowOpen(a, now);
+  if (a.review) {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
+        <span>Your review:</span>
+        <Stars value={a.review.rating} size={14} />
+        {a.review.reply && <span className="font-medium text-brand-800">· The doctor replied</span>}
+      </div>
+    );
+  }
+  if (!open || !a.review_open_until) return null;
+  return (
+    <p className="mt-2 text-sm text-slate-600">
+      How was your visit? You can leave a review until {formatDate(a.review_open_until.slice(0, 10))}.{" "}
+      <button type="button" onClick={onOpen} className="font-semibold text-brand-700 hover:underline">
+        Rate your visit
+      </button>
+    </p>
+  );
+}
+
 function AppointmentItem({
   appointment,
   doctor,
   highlighted,
+  openReview,
   onChanged,
 }: {
   appointment: PatientAppointment;
   doctor: DoctorPublic | null | undefined;
   /** Opened from a notification: outlined so it's easy to spot. */
   highlighted: boolean;
+  /** Opened from a "leave a review" / "the doctor replied" notification. */
+  openReview: boolean;
   onChanged: () => void;
 }) {
+  const { displayName } = useAuth();
+  const now = useNow();
   const [confirming, setConfirming] = useState(false);
+  const [reviewing, setReviewing] = useState(openReview);
+  const reviewable = appointment.status === "completed" && (appointment.review !== null || reviewWindowOpen(appointment, now));
   const canCancel = appointment.status === "pending" || appointment.status === "confirmed";
   const doctorName = doctor?.full_name ?? "your doctor";
   const when = `${formatDate(appointment.slot.date)} at ${formatTime(appointment.slot.start_time)}`;
@@ -85,6 +119,7 @@ function AppointmentItem({
           )}
           <CancellationInfo appointment={appointment} viewer="patient" />
           <SharingLine appointment={appointment} doctorName={doctor?.full_name ?? "your doctor"} />
+          <ReviewLine appointment={appointment} onOpen={() => setReviewing(true)} />
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
@@ -94,8 +129,23 @@ function AppointmentItem({
               Cancel appointment
             </Button>
           )}
+          {reviewable && (
+            <Button variant={appointment.review ? "secondary" : "accent"} onClick={() => setReviewing(true)}>
+              {!appointment.review ? "Rate your visit" : appointment.review.can_edit ? "Edit your review" : "View your review"}
+            </Button>
+          )}
         </div>
       </div>
+
+      {reviewing && reviewable && (
+        <ReviewDialog
+          appointment={appointment}
+          doctorName={doctor?.full_name ?? "your doctor"}
+          patientName={displayName}
+          onClose={() => setReviewing(false)}
+          onChanged={onChanged}
+        />
+      )}
 
       {confirming && (
         <ConfirmDialog
@@ -124,6 +174,7 @@ function PatientDashboard() {
   const bookedId = searchParams.get("booked");
   // ?appointment=ID: opened from a notification — show that appointment's tab and point at it.
   const focusId = Number(searchParams.get("appointment")) || null;
+  const reviewFocus = searchParams.get("review") === "1";
   const [focused, setFocused] = useState<number | null>(null);
   const [version, setVersion] = useState(0);
   const [appointments, setAppointments] = useState<{ version: number; data?: PatientAppointment[]; error?: string } | null>(null);
@@ -252,6 +303,7 @@ function PatientDashboard() {
             appointment={a}
             doctor={doctors[a.doctor_id]}
             highlighted={a.id === focusId}
+            openReview={reviewFocus && a.id === focusId}
             onChanged={() => setVersion((v) => v + 1)}
           />
         ))}

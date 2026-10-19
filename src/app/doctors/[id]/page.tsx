@@ -6,6 +6,9 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { NextAvailableLine, OnlineBadge } from "@/components/doctor-card";
+import { DoctorReviews } from "@/components/doctor-reviews";
+import { RatingBadge } from "@/components/rating";
 import { ShareChooser } from "@/components/health/share-chooser";
 import { Alert, Avatar, Button, ButtonLink, Card, Container, Field, PageLoading, Textarea } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
@@ -42,8 +45,10 @@ function DoctorProfile() {
     let cancelled = false;
     api<DoctorPublic>(`/doctors/${id}`, { auth: false })
       .then((data) => !cancelled && setDoctor({ id, data }))
-      .catch((e) =>
-        !cancelled && setDoctor({ id, error: e instanceof ApiError && e.status === 404 ? "This doctor could not be found." : messageOf(e) }),
+      .catch(
+        (e) =>
+          !cancelled &&
+          setDoctor({ id, error: e instanceof ApiError && e.status === 404 ? "This doctor could not be found." : messageOf(e) }),
       );
     return () => {
       cancelled = true;
@@ -140,39 +145,60 @@ function DoctorProfile() {
         ← All doctors
       </Link>
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_380px]">
-        <Card className="h-fit">
-          <div className="flex flex-col gap-5 sm:flex-row">
-            <Avatar text={initials(d.full_name)} size="lg" />
-            <div className="min-w-0">
-              <h1 className="break-words text-2xl font-bold text-ink">{d.full_name ?? "Doctor (profile incomplete)"}</h1>
-              {d.specialty && <p className="text-lg font-medium text-brand-700">{d.specialty}</p>}
-              {d.qualifications && <p className="text-slate-600">{d.qualifications}</p>}
+      <div className="mt-4 grid items-start gap-6 lg:grid-cols-[1fr_380px]">
+        <div className="min-w-0">
+          <Card className="h-fit">
+            <div className="flex flex-col gap-5 sm:flex-row">
+              <Avatar text={initials(d.full_name)} size="lg" />
+              <div className="min-w-0">
+                <h1 className="break-words text-2xl font-bold text-ink">{d.full_name ?? "Doctor (profile incomplete)"}</h1>
+                {d.specialty && <p className="text-lg font-medium text-brand-700">{d.specialty}</p>}
+                {d.qualifications && <p className="text-slate-600">{d.qualifications}</p>}
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <RatingBadge average={d.rating_average} count={d.review_count} />
+                  {(d.city || d.area) && (
+                    <span className="text-sm text-slate-600">{[d.city, d.area].filter(Boolean).join(" · ")}</span>
+                  )}
+                  {d.offers_online && <OnlineBadge />}
+                </div>
+                <div className="mt-1">
+                  <NextAvailableLine doctor={d} />
+                </div>
+              </div>
             </div>
-          </div>
-          <dl className="mt-6 grid gap-4 border-t border-slate-200 pt-6 sm:grid-cols-3">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Experience</dt>
-              <dd className="mt-1 font-semibold text-ink">{d.experience_years !== null ? `${d.experience_years} years` : "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Consultation fee</dt>
-              <dd className="mt-1 font-semibold text-ink">{fee ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Clinic</dt>
-              <dd className="mt-1 break-words font-semibold text-ink">{d.clinic_name ?? "—"}</dd>
-            </div>
-          </dl>
-          {d.bio && (
-            <div className="mt-6 border-t border-slate-200 pt-6">
-              <h2 className="font-semibold text-ink">About</h2>
-              <p className="mt-2 whitespace-pre-line break-words text-slate-600">{d.bio}</p>
-            </div>
-          )}
-        </Card>
+            <dl className="mt-6 grid gap-4 border-t border-slate-200 pt-6 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Experience</dt>
+                <dd className="mt-1 font-semibold text-ink">
+                  {d.experience_years !== null ? `${d.experience_years} years` : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Consultation fee</dt>
+                <dd className="mt-1 font-semibold text-ink">{fee ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Clinic</dt>
+                <dd className="mt-1 break-words font-semibold text-ink">{d.clinic_name ?? "—"}</dd>
+              </div>
+              {d.clinic_address && (
+                <div className="sm:col-span-3">
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Clinic address</dt>
+                  <dd className="mt-1 break-words font-semibold text-ink">{d.clinic_address}</dd>
+                </div>
+              )}
+            </dl>
+            {d.bio && (
+              <div className="mt-6 border-t border-slate-200 pt-6">
+                <h2 className="font-semibold text-ink">About</h2>
+                <p className="mt-2 whitespace-pre-line break-words text-slate-600">{d.bio}</p>
+              </div>
+            )}
+          </Card>
+        </div>
 
-        <Card className="h-fit">
+        {/* Booking spans both rows on wide screens; on a phone it comes before the reviews. */}
+        <Card className="h-fit lg:row-span-2">
           <h2 className="text-lg font-semibold text-ink">Book a video consultation</h2>
           {currentSlots === null && <p className="mt-4 text-slate-500">Loading available times…</p>}
           {currentSlots !== null && dates.length === 0 && (
@@ -257,6 +283,9 @@ function DoctorProfile() {
             </form>
           )}
         </Card>
+        <div className="min-w-0 lg:col-start-1">
+          <DoctorReviews doctorId={d.id} doctorName={d.full_name ?? "this doctor"} />
+        </div>
       </div>
 
       {/* Closes by itself if the time is taken meanwhile (the warning above then shows). */}
@@ -292,15 +321,23 @@ function DoctorProfile() {
             )}
           </dl>
           {historyError ? (
-            <Alert tone="warning">Couldn&apos;t load your health record ({historyError}). Everything that isn&apos;t private will be shared.</Alert>
+            <Alert tone="warning">
+              Couldn&apos;t load your health record ({historyError}). Everything that isn&apos;t private will be shared.
+            </Alert>
           ) : myHistory ? (
-            <ShareChooser history={myHistory} doctorName={d.full_name ?? "the doctor"} excluded={excluded} onChange={setExcluded} />
+            <ShareChooser
+              history={myHistory}
+              doctorName={d.full_name ?? "the doctor"}
+              excluded={excluded}
+              onChange={setExcluded}
+            />
           ) : (
             <p className="text-slate-500">Loading your health record…</p>
           )}
           <p>
-            It&apos;s a video consultation. The doctor will confirm your request, and you&apos;ll be notified when they do. Your shared history becomes
-            visible to them only once they accept, and you can change or stop sharing any time from My appointments.
+            It&apos;s a video consultation. The doctor will confirm your request, and you&apos;ll be notified when they do. Your
+            shared history becomes visible to them only once they accept, and you can change or stop sharing any time from My
+            appointments.
           </p>
         </ConfirmDialog>
       )}

@@ -23,6 +23,7 @@ const linksByRole = {
   doctor: [
     { href: "/doctor", label: "Dashboard" },
     { href: "/doctor/availability", label: "Availability" },
+    { href: "/doctor/reviews", label: "Reviews" },
     { href: "/doctor/profile", label: "Profile" },
   ],
 };

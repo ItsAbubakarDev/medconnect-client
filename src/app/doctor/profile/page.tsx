@@ -5,9 +5,10 @@ import { Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { RequireRole } from "@/components/require-role";
-import { Alert, Button, ButtonLink, Card, Container, Field, Input, PageHeader, PageLoading, Textarea } from "@/components/ui";
+import { Alert, Button, ButtonLink, Card, Container, Field, Input, PageHeader, PageLoading, Select, Textarea } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { CITIES } from "@/lib/cities";
 import { SPECIALTY_SUGGESTIONS } from "@/lib/specialties";
 import type { DoctorProfile } from "@/lib/types";
 
@@ -21,7 +22,11 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
     clinic_name: profile.clinic_name ?? "",
     consultation_fee: profile.consultation_fee ?? "",
     bio: profile.bio ?? "",
+    city: profile.city ?? "",
+    area: profile.area ?? "",
+    clinic_address: profile.clinic_address ?? "",
   });
+  const [online, setOnline] = useState(profile.offers_online);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [complete, setComplete] = useState(Boolean(profile.full_name && profile.specialty));
@@ -44,6 +49,10 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
           clinic_name: orNull(form.clinic_name),
           consultation_fee: orNull(form.consultation_fee),
           bio: orNull(form.bio),
+          city: form.city,
+          area: orNull(form.area),
+          clinic_address: orNull(form.clinic_address),
+          offers_online: online,
         },
       });
       setComplete(Boolean(saved.full_name && saved.specialty));
@@ -109,6 +118,57 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
               onChange={set("consultation_fee")}
             />
           </Field>
+          <fieldset className="grid gap-5 rounded-xl border border-slate-200 p-4 sm:col-span-2 sm:grid-cols-2">
+            <legend className="px-1 text-sm font-semibold text-ink">Location</legend>
+            {!profile.city && (
+              <div className="sm:col-span-2">
+                <Alert tone="warning">
+                  Add your city so patients searching in your city can find you. Until then you only appear when patients
+                  don&apos;t filter by city.
+                </Alert>
+              </div>
+            )}
+            <Field label="City" htmlFor="city" required>
+              <Select id="city" required value={form.city} onChange={set("city")}>
+                <option value="" disabled>
+                  Choose your city
+                </option>
+                {CITIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Area or locality" htmlFor="area" hint='e.g. "DHA Phase 5", "F-10", "Gulberg III"'>
+              <Input id="area" maxLength={120} value={form.area} onChange={set("area")} />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Clinic address" htmlFor="clinic_address" hint="Shown on your public page.">
+                <Input
+                  id="clinic_address"
+                  maxLength={500}
+                  placeholder="Building, street, area, city"
+                  value={form.clinic_address}
+                  onChange={set("clinic_address")}
+                />
+              </Field>
+            </div>
+            <label className="flex cursor-pointer items-start gap-3 sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={online}
+                onChange={(e) => setOnline(e.target.checked)}
+                className="mt-1 h-4 w-4 accent-brand-700"
+              />
+              <span>
+                <span className="block font-medium text-ink">Offers online (video) consultation</span>
+                <span className="block text-sm text-slate-600">
+                  Patients anywhere in Pakistan can find you when they search for online consultations.
+                </span>
+              </span>
+            </label>
+          </fieldset>
           <div className="sm:col-span-2">
             <Field label="About you" htmlFor="bio" hint={`${form.bio.length}/2000`}>
               <Textarea id="bio" rows={5} maxLength={2000} value={form.bio} onChange={set("bio")} />

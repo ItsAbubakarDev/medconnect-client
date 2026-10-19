@@ -13,6 +13,7 @@ import type { DayOff, DaysOffResult, MySlot, Schedule, ScheduleChanges, Schedule
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 
 const DURATIONS = [10, 15, 20, 30, 45, 60];
+const BREAKS = [0, 5, 10, 15, 20, 30];
 const WINDOWS = [
   { days: 7, label: "1 week" },
   { days: 14, label: "2 weeks" },
@@ -39,8 +40,20 @@ const windowLabel = (days: number) => WINDOWS.find((w) => w.days === days)?.labe
 /* ------------------------------------------------------------------------------------------ */
 /* Shared: what a change did                                                                   */
 
+function BookingList({ bookings }: { bookings: ScheduleChanges["booked_outside_hours"] }) {
+  return (
+    <ul className="mt-2 list-disc space-y-0.5 pl-5">
+      {bookings.map((b) => (
+        <li key={b.appointment_id}>
+          {formatDate(b.date)}, {formatTime(b.start_time)} — {b.patient_name ?? "Patient"}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ChangesSummary({ changes, intro }: { changes: ScheduleChanges; intro: string }) {
-  const { opened, closed, booked_outside_hours: kept } = changes;
+  const { opened, closed, booked_outside_hours: kept, booked_too_close: close } = changes;
   const parts = [];
   if (opened) parts.push(`${opened} new time${opened === 1 ? "" : "s"} opened`);
   if (closed) parts.push(`${closed} free time${closed === 1 ? "" : "s"} closed`);
@@ -59,13 +72,21 @@ function ChangesSummary({ changes, intro }: { changes: ScheduleChanges; intro: s
             </Link>
             .
           </p>
-          <ul className="mt-2 list-disc space-y-0.5 pl-5">
-            {kept.map((b) => (
-              <li key={b.appointment_id}>
-                {formatDate(b.date)}, {formatTime(b.start_time)} — {b.patient_name ?? "Patient"}
-              </li>
-            ))}
-          </ul>
+          <BookingList bookings={kept} />
+        </Alert>
+      )}
+      {close.length > 0 && (
+        <Alert tone="warning">
+          <p className="font-semibold">
+            {close.length === 1 ? "1 booked appointment is" : `${close.length} booked appointments are`} now closer together than
+            your break. They are kept as booked; no new times were opened inside the break. To make room, contact the patient or
+            cancel from your{" "}
+            <Link href="/doctor" className="underline">
+              dashboard
+            </Link>
+            .
+          </p>
+          <BookingList bookings={close} />
         </Alert>
       )}
     </div>
@@ -114,6 +135,7 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
   } | null>(null);
   const [days, setDays] = useState<Day[]>([]);
   const [duration, setDuration] = useState(30);
+  const [buffer, setBuffer] = useState(0);
   const [windowDays, setWindowDays] = useState(28);
   const [savedKey, setSavedKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -126,6 +148,7 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
   const stateKey = JSON.stringify({
     days: days.map((d) => (d.on ? d.sessions : null)),
     duration,
+    buffer,
     windowDays,
   });
 
@@ -134,11 +157,13 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
     const nextDuration = schedule.slot_duration_minutes ?? 30;
     setDays(nextDays);
     setDuration(nextDuration);
+    setBuffer(schedule.buffer_minutes);
     setWindowDays(schedule.booking_window_days);
     setSavedKey(
       JSON.stringify({
         days: nextDays.map((d) => (d.on ? d.sessions : null)),
         duration: nextDuration,
+        buffer: schedule.buffer_minutes,
         windowDays: schedule.booking_window_days,
       }),
     );
@@ -189,6 +214,7 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
         method: "PUT",
         body: {
           slot_duration_minutes: duration,
+          buffer_minutes: buffer,
           booking_window_days: windowDays,
           sessions,
         },
@@ -216,8 +242,14 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
               Set your week once. Patients can book these hours automatically, always {windowLabel(windowDays)} ahead — no extra
               steps.
             </p>
+            {buffer > 0 && (
+              <p className="mt-1 text-sm text-slate-600">
+                {duration}-minute appointments with a {buffer}-minute break start every {duration + buffer} minutes. The last one
+                of a session can end right at the session&apos;s end. Patients never see the break.
+              </p>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-3">
             <Field label="Each appointment" htmlFor="duration">
               <Select
                 id="duration"
@@ -230,6 +262,22 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
                 {DURATIONS.map((m) => (
                   <option key={m} value={m}>
                     {m} minutes
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Break between appointments" htmlFor="buffer">
+              <Select
+                id="buffer"
+                value={buffer}
+                onChange={(e) => {
+                  setResult(null);
+                  setBuffer(Number(e.target.value));
+                }}
+              >
+                {BREAKS.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 0 ? "No break" : `${m} minutes`}
                   </option>
                 ))}
               </Select>
@@ -550,29 +598,42 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
               {slots.map((s) => {
                 const label = formatTime(s.start_time);
+                const breakAfter = s.break_minutes > 0 && (
+                  <span
+                    className="mt-1 block rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-0.5 text-center text-xs text-slate-500"
+                    title={`Break from ${formatTime(s.end_time)}`}
+                  >
+                    Break · {s.break_minutes} min
+                  </span>
+                );
                 if (s.state === "booked") {
                   return (
-                    <div key={s.id} className="rounded-lg border border-brand-700 bg-brand-700 px-2 py-2 text-sm text-white">
-                      <span className="block font-semibold">{label}</span>
-                      <span className="block truncate text-xs text-brand-100">{s.appointment?.patient_name ?? "Booked"}</span>
+                    <div key={s.id}>
+                      <div className="rounded-lg border border-brand-700 bg-brand-700 px-2 py-2 text-sm text-white">
+                        <span className="block font-semibold">{label}</span>
+                        <span className="block truncate text-xs text-brand-100">{s.appointment?.patient_name ?? "Booked"}</span>
+                      </div>
+                      {breakAfter}
                     </div>
                   );
                 }
                 const closed = s.state === "closed";
                 return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    disabled={s.started || busy !== null}
-                    aria-label={`${label} ${closed ? "closed, tap to open" : "free, tap to close"}`}
-                    onClick={() => toggle(s)}
-                    className={`rounded-lg border px-2 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${closed ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white text-ink hover:border-brand-700"}`}
-                  >
-                    <span className={`block font-semibold ${closed ? "line-through" : ""}`}>{label}</span>
-                    <span className="block text-xs">
-                      {busy === s.id ? "Saving…" : s.started ? "Passed" : closed ? "Closed" : "Free"}
-                    </span>
-                  </button>
+                  <div key={s.id}>
+                    <button
+                      type="button"
+                      disabled={s.started || busy !== null}
+                      aria-label={`${label} ${closed ? "closed, tap to open" : "free, tap to close"}`}
+                      onClick={() => toggle(s)}
+                      className={`w-full rounded-lg border px-2 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${closed ? "border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 bg-white text-ink hover:border-brand-700"}`}
+                    >
+                      <span className={`block font-semibold ${closed ? "line-through" : ""}`}>{label}</span>
+                      <span className="block text-xs">
+                        {busy === s.id ? "Saving…" : s.started ? "Passed" : closed ? "Closed" : "Free"}
+                      </span>
+                    </button>
+                    {breakAfter}
+                  </div>
                 );
               })}
             </div>
@@ -720,6 +781,7 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
         opened: 0,
         closed: 0,
         booked_outside_hours: [],
+        booked_too_close: [],
       };
       for (const id of range.ids) {
         const c = await api<ScheduleChanges>(`/doctors/me/days-off/${id}`, {
@@ -729,6 +791,7 @@ function DaysOff({ version, onChanged }: { version: number; onChanged: () => voi
           opened: total.opened + c.opened,
           closed: total.closed + c.closed,
           booked_outside_hours: [...total.booked_outside_hours, ...c.booked_outside_hours],
+          booked_too_close: [...total.booked_too_close, ...c.booked_too_close],
         };
       }
       setChanges(total);

@@ -74,3 +74,18 @@ export function initials(name: string | null): string {
   const words = name.replace(/^dr\.?\s+/i, "").trim().split(/\s+/);
   return (words[0]?.[0] ?? "?").toUpperCase() + (words[1]?.[0] ?? "").toUpperCase();
 }
+
+/** "Today, 10:00 AM", "Tomorrow, 10:00 AM" or "Tue, 21 Oct, 10:00 AM" (clinic wall-clock). */
+export function formatNextAvailable(next: { date: string; start_time: string }, today: string): string {
+  const time = formatTime(next.start_time);
+  if (next.date === today) return `Today, ${time}`;
+  if (next.date === addDays(today, 1)) return `Tomorrow, ${time}`;
+  const { weekday, day } = formatDayShort(next.date);
+  return `${weekday}, ${day}, ${time}`;
+}
+
+/** A booking window as patients think of it: "4 weeks", "10 days", "1 week". */
+export function windowText(days: number): string {
+  if (days % 7 === 0) return days === 7 ? "1 week" : `${days / 7} weeks`;
+  return days === 1 ? "1 day" : `${days} days`;
+}
