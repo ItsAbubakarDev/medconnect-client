@@ -5,15 +5,29 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancelDialog } from "@/components/cancel-dialog";
+import { DoctorFollowUps } from "@/components/doctor-follow-ups";
 import { CancellationInfo } from "@/components/cancellation-info";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
-import { Alert, Button, ButtonLink, Card, Container, EmptyState, Field, Input, PageHeader, PageLoading, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  ButtonLink,
+  Card,
+  Container,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  PageLoading,
+  Select,
+} from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { clinicNow, formatDate, formatTime, hasStarted } from "@/lib/format";
+import { TYPE_LABELS } from "@/lib/follow-ups";
 import type { AppointmentStatus, DoctorAppointment, DoctorProfile, DoctorReviewPage } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
@@ -72,6 +86,13 @@ function AppointmentRow({
           <p className="mt-1 text-slate-700">
             {formatDate(slot.date)} · {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
           </p>
+          {appointment.follow_up && (
+            <p className="mt-1 text-sm font-medium text-violet-800">
+              Follow-up of the {formatDate(appointment.follow_up.original_visit_date)} visit ·{" "}
+              {TYPE_LABELS[appointment.follow_up.consultation_type]} · {appointment.follow_up.fee_label}
+              {!appointment.follow_up.in_window && " · outside the window you recommended"}
+            </p>
+          )}
           {appointment.notes && (
             <p className="mt-1 break-words text-sm text-slate-600">
               <span className="font-medium">Reason for visit:</span> {appointment.notes}
@@ -82,7 +103,9 @@ function AppointmentRow({
             <p className="mt-2 text-sm text-slate-600">The patient&apos;s medical history opens once you accept.</p>
           )}
           {appointment.history_access?.reason === "revoked" && status !== "cancelled" && (
-            <p className="mt-2 text-sm text-slate-600">The patient isn&apos;t sharing their medical history for this appointment.</p>
+            <p className="mt-2 text-sm text-slate-600">
+              The patient isn&apos;t sharing their medical history for this appointment.
+            </p>
           )}
           {status === "cancelled" && slot.is_blocked && (
             <p className="mt-2 text-sm text-slate-600">This time is withdrawn from your schedule.</p>
@@ -98,7 +121,9 @@ function AppointmentRow({
           {status === "pending" && <Button onClick={() => setConfirming("accept")}>Accept</Button>}
           {status === "confirmed" && (
             <>
-              <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
+              {appointment.follow_up?.consultation_type !== "clinic" && (
+                <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
+              )}
               <Button
                 variant="secondary"
                 onClick={() => setConfirming("complete")}
@@ -186,6 +211,10 @@ function DoctorDashboard() {
   // changing the filters afterwards isn't overridden.
   const searchParams = useSearchParams();
   const focusId = Number(searchParams.get("appointment")) || null;
+  // ?view=follow-ups: the Follow-ups tab (patients the doctor asked to come back).
+  const [view, setView] = useState<"appointments" | "follow-ups">(
+    searchParams.get("view") === "follow-ups" ? "follow-ups" : "appointments",
+  );
   const focusDate = searchParams.get("date");
   const focusKey = focusId !== null ? `${focusId}|${focusDate ?? ""}` : null;
   const [appliedFocus, setAppliedFocus] = useState<string | null>(null);
@@ -326,63 +355,91 @@ function DoctorDashboard() {
         </Link>
       </div>
 
-      <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="sm:w-60">
-          <Field label="Status" htmlFor="status-filter">
-            <Select id="status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "" | AppointmentStatus)}>
-              {STATUS_FILTERS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <div className="sm:w-52">
-          <Field label="Date" htmlFor="date-filter" hint="Empty = today and upcoming">
-            <Input id="date-filter" type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
-          </Field>
-        </div>
-        {filtered && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setStatusFilter("");
-              setDateFilter("");
-            }}
-            className="sm:mt-7"
+      <div className="mt-8 flex gap-2 border-b border-slate-200" role="tablist">
+        {(["appointments", "follow-ups"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${view === v ? "border-brand-700 text-brand-800" : "border-transparent text-slate-600 hover:text-ink"}`}
           >
-            Clear filters
-          </Button>
-        )}
-      </div>
-
-      <div className="mt-6 grid gap-4">
-        {!current && <p className="text-slate-500">Loading appointments…</p>}
-        {current?.error && <Alert tone="error">{current.error}</Alert>}
-        {current?.data?.length === 0 && (
-          <EmptyState title={filtered ? "No appointments match these filters" : "No upcoming appointments"}>
-            {!filtered && (
-              <>
-                Patients can book any time within your weekly hours.{" "}
-                <Link href="/doctor/availability" className="font-semibold text-brand-700 hover:underline">
-                  Set your availability
-                </Link>
-              </>
-            )}
-          </EmptyState>
-        )}
-        {current?.data?.map((a) => (
-          <AppointmentRow
-            key={a.id}
-            appointment={a}
-            now={now}
-            highlighted={a.id === focusId}
-            onChanged={refresh}
-            onCancel={setCancelling}
-          />
+            {v === "appointments" ? "Appointments" : "Follow-ups"}
+          </button>
         ))}
       </div>
+
+      {view === "follow-ups" && (
+        <div className="mt-6">
+          <DoctorFollowUps liveTick={liveTick} />
+        </div>
+      )}
+
+      {view === "appointments" && (
+        <>
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="sm:w-60">
+              <Field label="Status" htmlFor="status-filter">
+                <Select
+                  id="status-filter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as "" | AppointmentStatus)}
+                >
+                  {STATUS_FILTERS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <div className="sm:w-52">
+              <Field label="Date" htmlFor="date-filter" hint="Empty = today and upcoming">
+                <Input id="date-filter" type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+              </Field>
+            </div>
+            {filtered && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setStatusFilter("");
+                  setDateFilter("");
+                }}
+                className="sm:mt-7"
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-6 grid gap-4">
+            {!current && <p className="text-slate-500">Loading appointments…</p>}
+            {current?.error && <Alert tone="error">{current.error}</Alert>}
+            {current?.data?.length === 0 && (
+              <EmptyState title={filtered ? "No appointments match these filters" : "No upcoming appointments"}>
+                {!filtered && (
+                  <>
+                    Patients can book any time within your weekly hours.{" "}
+                    <Link href="/doctor/availability" className="font-semibold text-brand-700 hover:underline">
+                      Set your availability
+                    </Link>
+                  </>
+                )}
+              </EmptyState>
+            )}
+            {current?.data?.map((a) => (
+              <AppointmentRow
+                key={a.id}
+                appointment={a}
+                now={now}
+                highlighted={a.id === focusId}
+                onChanged={refresh}
+                onCancel={setCancelling}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {cancelling && (
         <CancelDialog

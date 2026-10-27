@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { ConsultationForm } from "@/components/health/consultation-form";
@@ -12,7 +12,8 @@ import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, Card, Container, EmptyState, PageLoading } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
-import { formatDate, formatTime, hasStarted } from "@/lib/format";
+import { clinicToday, formatDate, formatTime, hasStarted } from "@/lib/format";
+import { TYPE_LABELS } from "@/lib/follow-ups";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import type { Consultation, DoctorPatientHistory, MedicalDocument, OwnConsultation } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
@@ -28,11 +29,10 @@ function age(dob: string | null, nowMs: number | null): string | null {
   return `${years} years`;
 }
 
-function PatientView() {
-  const { id } = useParams<{ id: string }>();
-  const appointmentId = Number(id);
+function PatientView({ appointmentId }: { appointmentId: number }) {
   const now = useNow();
-  const [tab, setTab] = useState<Tab>("timeline");
+  // ?tab=consultation: opened from a follow-up appointment's "your record from then" link.
+  const [tab, setTab] = useState<Tab>(useSearchParams().get("tab") === "consultation" ? "consultation" : "timeline");
   const [history, setHistory] = useState<{ data?: DoctorPatientHistory; closed?: string; error?: string } | null>(null);
   const [own, setOwn] = useState<OwnConsultation | null>(null);
   const [past, setPast] = useState<OwnConsultation[] | null>(null);
@@ -128,6 +128,24 @@ function PatientView() {
         {appointment && <StatusBadge status={appointment.status} />}
       </div>
 
+      {own?.follow_up_of && (
+        <div className="mt-6">
+          <Alert tone="info">
+            <span className="font-semibold">Follow-up of the {formatDate(own.follow_up_of.original_visit_date)} visit</span> ·{" "}
+            {TYPE_LABELS[own.follow_up_of.consultation_type]} · {own.follow_up_of.fee_label}
+            {!own.follow_up_of.in_window && " · booked outside the recommended window"}
+            <br />
+            Reason: {own.follow_up_of.reason}.{" "}
+            <Link
+              href={`/doctor/appointments/${own.follow_up_of.original_appointment_id}?tab=consultation`}
+              className="font-semibold underline"
+            >
+              Your consultation record from then
+            </Link>
+          </Alert>
+        </div>
+      )}
+
       {history.closed && (
         <div className="mt-6 space-y-6">
           <Alert tone="info">{history.closed}</Alert>
@@ -190,7 +208,12 @@ function PatientView() {
           )}
           {tab === "consultation" &&
             (canWrite ? (
-              <ConsultationForm appointmentId={appointmentId} existing={own?.consultation ?? null} onSaved={saved} />
+              <ConsultationForm
+                appointmentId={appointmentId}
+                visitDate={appointment?.date ?? clinicToday()}
+                existing={own?.consultation ?? null}
+                onSaved={saved}
+              />
             ) : own?.consultation ? (
               <ConsultationCard consultation={own.consultation} onOpenDocument={openDoc} />
             ) : (
@@ -213,11 +236,17 @@ function PatientView() {
   );
 }
 
+function ByAppointment() {
+  const { id } = useParams<{ id: string }>();
+  // Keyed by the appointment, so following a link to another one starts afresh.
+  return <PatientView key={id} appointmentId={Number(id)} />;
+}
+
 export default function DoctorPatientPage() {
   return (
     <RequireRole role="doctor">
       <Suspense fallback={<PageLoading />}>
-        <PatientView />
+        <ByAppointment />
       </Suspense>
     </RequireRole>
   );

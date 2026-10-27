@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
+
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+import { STATUS_LABELS, windowLabel } from "@/lib/follow-ups";
 import { formatDate } from "@/lib/format";
 import {
   DOCUMENT_LABELS,
@@ -254,6 +257,20 @@ export function ConsultationCard({
             <p className="whitespace-pre-line break-words text-sm text-slate-700">
               <span className="font-medium text-ink">Follow-up: </span>
               {c.follow_up}
+            </p>
+          )}
+          {c.follow_up_recommendation && (
+            <p className="text-sm text-violet-800">
+              <span className="font-medium">Follow-up recommended:</span> around {formatDate(c.follow_up_recommendation.target_date)}{" "}
+              ({windowLabel(c.follow_up_recommendation)}) · {STATUS_LABELS[c.follow_up_recommendation.status]}
+              {!c.is_own && c.follow_up_recommendation.can_book && (
+                <>
+                  {" · "}
+                  <Link href={`/patient/follow-ups/${c.appointment_id}`} className="font-semibold underline">
+                    Book follow-up
+                  </Link>
+                </>
+              )}
             </p>
           )}
           {c.prescription && (

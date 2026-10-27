@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancellationInfo } from "@/components/cancellation-info";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { FollowUpActions, FollowUpStatusBadge, FollowUpSummary, FollowUpsCard } from "@/components/follow-ups-card";
 import { Stars } from "@/components/rating";
 import { ReviewDialog, reviewWindowOpen } from "@/components/review-dialog";
 import { RequireRole } from "@/components/require-role";
@@ -16,7 +17,8 @@ import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatDate, formatTime } from "@/lib/format";
 import { timeAgo } from "@/lib/notifications";
-import type { DoctorPublic, PatientAppointment } from "@/lib/types";
+import { TYPE_LABELS } from "@/lib/follow-ups";
+import type { DoctorPublic, FollowUp, PatientAppointment } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
 const slotKey = (a: PatientAppointment) => `${a.slot.date}T${a.slot.start_time}`;
@@ -74,10 +76,13 @@ function AppointmentItem({
   doctor,
   highlighted,
   openReview,
+  recommended,
   onChanged,
 }: {
   appointment: PatientAppointment;
   doctor: DoctorPublic | null | undefined;
+  /** The follow-up the doctor recommended at this visit, if any. */
+  recommended: FollowUp | undefined;
   /** Opened from a notification: outlined so it's easy to spot. */
   highlighted: boolean;
   /** Opened from a "leave a review" / "the doctor replied" notification. */
@@ -113,6 +118,12 @@ function AppointmentItem({
           <p className="mt-2 text-slate-700">
             {formatDate(appointment.slot.date)} · {formatTime(appointment.slot.start_time)} – {formatTime(appointment.slot.end_time)}
           </p>
+          {appointment.follow_up && (
+            <p className="mt-1 text-sm font-medium text-violet-800">
+              Follow-up of your {formatDate(appointment.follow_up.original_visit_date)} visit ·{" "}
+              {TYPE_LABELS[appointment.follow_up.consultation_type]} · {appointment.follow_up.fee_label}
+            </p>
+          )}
           {appointment.notes && <p className="mt-1 break-words text-sm text-slate-600">Your note: {appointment.notes}</p>}
           {appointment.status === "pending" && (
             <p className="mt-1 text-sm text-amber-800">Waiting for the doctor to confirm.</p>
@@ -120,10 +131,25 @@ function AppointmentItem({
           <CancellationInfo appointment={appointment} viewer="patient" />
           <SharingLine appointment={appointment} doctorName={doctor?.full_name ?? "your doctor"} />
           <ReviewLine appointment={appointment} onOpen={() => setReviewing(true)} />
+          {recommended && (
+            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+                    Follow-up recommended <FollowUpStatusBadge status={recommended.status} />
+                  </p>
+                  <FollowUpSummary f={recommended} />
+                </div>
+                <FollowUpActions f={recommended} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
-          {appointment.status === "confirmed" && <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>}
+          {appointment.status === "confirmed" && appointment.follow_up?.consultation_type !== "clinic" && (
+            <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
+          )}
           {canCancel && (
             <Button variant="danger" onClick={() => setConfirming(true)}>
               Cancel appointment
@@ -179,6 +205,7 @@ function PatientDashboard() {
   const [version, setVersion] = useState(0);
   const [appointments, setAppointments] = useState<{ version: number; data?: PatientAppointment[]; error?: string } | null>(null);
   const [doctors, setDoctors] = useState<Record<number, DoctorPublic | null>>({});
+  const [followUps, setFollowUps] = useState<FollowUp[] | null>(null);
   const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
   // Refetch every 10s (and on returning to the tab), so a doctor accepting, cancelling or
   // completing shows up without a reload.
@@ -194,6 +221,17 @@ function PatientDashboard() {
       cancelled = true;
     };
   }, [version, liveTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<FollowUp[]>("/follow-ups/me")
+      .then((data) => !cancelled && setFollowUps(data))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [version, liveTick]);
+  const followUpByVisit = useMemo(() => new Map((followUps ?? []).map((f) => [f.appointment_id, f])), [followUps]);
 
   const list = appointments?.data;
 
@@ -271,6 +309,12 @@ function PatientDashboard() {
         )}
       </div>
 
+      {followUps && followUps.length > 0 && (
+        <div className="mt-6">
+          <FollowUpsCard followUps={followUps} onChanged={() => setVersion((v) => v + 1)} />
+        </div>
+      )}
+
       <div className="mt-6 flex gap-2 border-b border-slate-200" role="tablist">
         {(["upcoming", "history"] as const).map((t) => (
           <button
@@ -304,6 +348,7 @@ function PatientDashboard() {
             doctor={doctors[a.doctor_id]}
             highlighted={a.id === focusId}
             openReview={reviewFocus && a.id === focusId}
+            recommended={followUpByVisit.get(a.id)}
             onChanged={() => setVersion((v) => v + 1)}
           />
         ))}

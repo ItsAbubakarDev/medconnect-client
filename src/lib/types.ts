@@ -35,6 +35,7 @@ export interface PatientAppointment extends Appointment {
   review: OwnReview | null;
   /** For a completed visit: until when it can be reviewed (and the review edited). */
   review_open_until: string | null;
+  follow_up: FollowUpLink | null; // booked from a doctor's follow-up recommendation
 }
 
 export interface DoctorAppointment extends Appointment {
@@ -42,6 +43,7 @@ export interface DoctorAppointment extends Appointment {
   /** Whether the patient's shared history can be opened from this appointment right now. */
   history_access: AccessState | null;
   has_consultation: boolean;
+  follow_up: FollowUpLink | null; // booked from the doctor's follow-up recommendation
 }
 
 export interface DoctorProfile {
@@ -193,7 +195,11 @@ export type NotificationType =
   | "history_updated"
   | "consultation_added"
   | "review_received"
-  | "review_replied";
+  | "review_replied"
+  | "follow_up_recommended"
+  | "follow_up_due"
+  | "follow_up_removed"
+  | "follow_up_booked";
 
 export interface AppNotification {
   id: number;
@@ -302,6 +308,8 @@ export interface Consultation {
   is_own: boolean; // written by the doctor who is viewing
   medications: HealthEntry[];
   prescription: MedicalDocument | null;
+  /** For the patient and the doctor who wrote it only. */
+  follow_up_recommendation: FollowUp | null;
   created_at: string;
   updated_at: string;
 }
@@ -379,6 +387,8 @@ export interface OwnConsultation {
   appointment: AppointmentSummary;
   patient: PatientSummary;
   consultation: Consultation | null;
+  /** When this appointment is itself a follow-up: the visit it follows up. */
+  follow_up_of: FollowUpLink | null;
 }
 
 // ---- reviews
@@ -439,4 +449,59 @@ export interface OwnReview {
   updated_at: string;
   editable_until: string;
   can_edit: boolean;
+}
+
+// ---- follow-ups
+
+export type FollowUpFlexibility = "exact" | "plus_minus_2_days" | "plus_minus_1_week" | "within_2_weeks_after";
+export type ConsultationType = "clinic" | "online";
+export type FollowUpFee = "standard" | "free" | "reduced";
+export type FollowUpStatus = "recommended" | "booked" | "dismissed" | "expired" | "completed";
+
+export interface FollowUp {
+  id: number;
+  appointment_id: number; // the original visit
+  consultation_id: number;
+  doctor_id: number;
+  doctor_name: string | null;
+  doctor_specialty: string | null;
+  patient_id: number;
+  patient_name: string | null;
+  visit_date: string;
+  target_date: string;
+  flexibility: FollowUpFlexibility;
+  window_start: string;
+  window_end: string;
+  consultation_type: ConsultationType;
+  reason: string;
+  fee_type: FollowUpFee;
+  fee_amount: string | null;
+  fee_label: string;
+  status: FollowUpStatus;
+  booked: { id: number; status: AppointmentStatus; date: string; start_time: string; in_window: boolean } | null;
+  /** The window isn't bookable yet: times appear from this day. */
+  bookable_from: string | null;
+  can_book: boolean;
+  can_edit: boolean;
+  dismissed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FollowUpBooking {
+  follow_up: FollowUp;
+  in_window: Slot[]; // nearest the target first
+  after_window: Slot[]; // only when nothing is free in the window
+  share_exclusions: ShareItemRef[];
+  reason_for_visit: string;
+}
+
+export interface FollowUpLink {
+  follow_up_id: number;
+  original_appointment_id: number;
+  original_visit_date: string;
+  consultation_type: ConsultationType;
+  reason: string;
+  fee_label: string;
+  in_window: boolean;
 }

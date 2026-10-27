@@ -4,9 +4,10 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { api, messageOf } from "@/lib/api";
-import type { Consultation, OwnConsultation } from "@/lib/types";
+import type { Consultation, FollowUp, OwnConsultation } from "@/lib/types";
 
 import { ConfirmDialog } from "../confirm-dialog";
+import { bodyOf, draftOf, draftProblem, FollowUpFields } from "./follow-up-fields";
 import { Alert, Button, Card, Field, Input, Textarea } from "../ui";
 
 type Med = { key: number; id: number | null; name: string; dosage: string; frequency: string; instructions: string };
@@ -27,10 +28,12 @@ const medsOf = (c: Consultation | null): Med[] =>
  * started, editable until the follow-up window ends. Lands in the patient's history. */
 export function ConsultationForm({
   appointmentId,
+  visitDate,
   existing,
   onSaved,
 }: {
   appointmentId: number;
+  visitDate: string;
   existing: Consultation | null;
   onSaved: (c: Consultation) => void;
 }) {
@@ -42,12 +45,22 @@ export function ConsultationForm({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null);
+  // The follow-up recommendation is saved right after the record (its own endpoint).
+  const [savedFollowUp, setSavedFollowUp] = useState<FollowUp | null>(existing?.follow_up_recommendation ?? null);
+  const [followUpDraft, setFollowUpDraft] = useState(() => draftOf(existing?.follow_up_recommendation ?? null, visitDate));
+  const [removingFollowUp, setRemovingFollowUp] = useState(false);
+  const followUpUrl = `/doctors/me/appointments/${appointmentId}/consultation/follow-up`;
 
   const setMed = (key: number, patch: Partial<Med>) =>
     setMeds((list) => list.map((m) => (m.key === key ? { ...m, ...patch } : m)));
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    const problem = draftProblem(followUpDraft);
+    if (problem) {
+      setMessage({ tone: "error", text: problem });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     const text = (v: string) => v.trim() || null;
@@ -79,13 +92,30 @@ export function ConsultationForm({
         });
         setFile(null);
       }
-      setMessage({
-        tone: "success",
-        text: existing ? "Saved. The patient's history is updated." : "Saved to the patient's history. They've been notified.",
-      });
+      let followUp = savedFollowUp;
+      let followUpError: string | null = null;
+      if (followUpDraft.on && (!savedFollowUp || savedFollowUp.can_edit)) {
+        try {
+          followUp = await api<FollowUp>(followUpUrl, { method: "PUT", body: bodyOf(followUpDraft) });
+          setSavedFollowUp(followUp);
+        } catch (err) {
+          followUpError = messageOf(err);
+        }
+      }
+      const recommendedNow = followUp !== null && savedFollowUp === null;
+      setMessage(
+        followUpError
+          ? { tone: "error", text: `The record is saved, but the follow-up couldn't be: ${followUpError}` }
+          : {
+              tone: "success",
+              text:
+                (existing ? "Saved. The patient's history is updated." : "Saved to the patient's history. They've been notified.") +
+                (recommendedNow ? " They've been asked to book the follow-up." : ""),
+            },
+      );
       // The saved medicines now have ids: later saves edit them rather than re-adding them.
       setMeds(medsOf(result.consultation));
-      if (result.consultation) onSaved(result.consultation);
+      if (result.consultation) onSaved({ ...result.consultation, follow_up_recommendation: followUp });
     } catch (err) {
       setMessage({ tone: "error", text: messageOf(err) });
     } finally {
@@ -197,6 +227,15 @@ export function ConsultationForm({
           />
         </Field>
 
+        <FollowUpFields
+          draft={followUpDraft}
+          onChange={setFollowUpDraft}
+          existing={savedFollowUp}
+          visitDate={visitDate}
+          onUntick={() => setRemovingFollowUp(true)}
+          disabled={saving}
+        />
+
         <div className="space-y-2">
           <p className="text-sm font-medium text-ink">Prescription file (optional)</p>
           {existing?.prescription && (
@@ -227,6 +266,24 @@ export function ConsultationForm({
           {saving ? "Saving…" : existing ? "Save changes" : "Save to patient's history"}
         </Button>
       </form>
+      {removingFollowUp && (
+        <ConfirmDialog
+          title="Remove the follow-up recommendation?"
+          confirmLabel="Remove follow-up"
+          busyLabel="Removing…"
+          tone="danger"
+          onConfirm={async () => {
+            await api(followUpUrl, { method: "DELETE" });
+            setSavedFollowUp(null);
+            setFollowUpDraft(draftOf(null, visitDate));
+            setRemovingFollowUp(false);
+            if (existing) onSaved({ ...existing, follow_up_recommendation: null });
+          }}
+          onClose={() => setRemovingFollowUp(false)}
+        >
+          <p>It disappears from the patient&apos;s follow-ups, and they&apos;re told you removed it.</p>
+        </ConfirmDialog>
+      )}
       {removing && (
         <ConfirmDialog
           title={`Remove “${removing.name}”?`}

@@ -184,6 +184,8 @@ export function notificationHref(n: AppNotification, role: Role): string {
   if (n.type === "history_updated") return `/doctor/appointments/${a.id}`;
   if (n.type === "consultation_added") return "/patient/history?tab=timeline";
   if (n.type === "review_received") return "/doctor/reviews";
+  if (n.type === "follow_up_recommended" || n.type === "follow_up_due") return `/patient/follow-ups/${a.id}`;
+  if (n.type === "follow_up_removed") return "/patient";
   if (n.type === "review_replied" || (n.type === "appointment_completed" && role === "patient")) {
     return `/patient?appointment=${a.id}&review=1`;
   }
