@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 
 import { api, messageOf } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { useDiscardConfirm } from "@/lib/leave-guard";
 import type { OwnReview, PatientAppointment } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
@@ -59,15 +60,21 @@ export function ReviewDialog({
   const [saved, setSaved] = useState<OwnReview | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
+  // Closing with a rating or words not yet posted asks "Discard your changes?" first.
+  const [initialValues] = useState(() => JSON.stringify([rating, comment, anonymous]));
+  const dirty = editable && !saved && JSON.stringify([rating, comment, anonymous]) !== initialValues;
+  const { requestClose, discardDialog, asking } = useDiscardConfirm(dirty, onClose);
+  const closeRef = useRef(requestClose);
+  const blockedRef = useRef(false);
   useEffect(() => {
-    onCloseRef.current = onClose;
+    closeRef.current = requestClose;
+    blockedRef.current = asking || confirmDelete; // Escape then belongs to the question on top
   });
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panel.current?.querySelector<HTMLElement>("input, textarea, button")?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !blockedRef.current && closeRef.current();
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -108,7 +115,10 @@ export function ReviewDialog({
   const when = formatDate(appointment.slot.date);
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={onClose}>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+        onMouseDown={() => !saving && requestClose()}
+      >
         <div
           ref={panel}
           role="dialog"
@@ -174,7 +184,7 @@ export function ReviewDialog({
                   <span />
                 )}
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                  <Button variant="secondary" onClick={onClose} disabled={saving}>
+                  <Button variant="secondary" onClick={requestClose} disabled={saving}>
                     Cancel
                   </Button>
                   <Button type="submit" disabled={saving || !rating}>
@@ -223,6 +233,7 @@ export function ReviewDialog({
           )}
         </div>
       </div>
+      {discardDialog}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete your review?"

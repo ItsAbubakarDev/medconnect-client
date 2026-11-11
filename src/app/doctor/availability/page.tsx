@@ -9,6 +9,7 @@ import { RequireRole } from "@/components/require-role";
 import { Alert, Button, Card, Container, Field, Input, PageHeader, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { addDays, clinicToday, formatDate, formatDayShort, formatTime, WEEKDAYS } from "@/lib/format";
+import { useLeaveGuard } from "@/lib/leave-guard";
 import type { DayOff, DaysOffResult, MySlot, Schedule, ScheduleChanges, ScheduleSaveResult } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 
@@ -194,10 +195,17 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
   const problem = problemsOf(days, duration);
   const dirty = loaded?.schedule !== undefined && stateKey !== savedKey;
   const openDays = days.filter((d) => d.on).length;
+  const [confirmingSave, setConfirmingSave] = useState(false);
+  useLeaveGuard(dirty);
 
-  async function save(e: FormEvent) {
+  // New hours change what patients can book straight away, so saving is asked first.
+  function submit(e: FormEvent) {
     e.preventDefault();
-    if (problem) return;
+    if (!problem) setConfirmingSave(true);
+  }
+
+  async function save() {
+    setConfirmingSave(false);
     setSaving(true);
     setResult(null);
     try {
@@ -234,7 +242,7 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
 
   return (
     <Card>
-      <form onSubmit={save}>
+      <form onSubmit={submit}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-ink">Weekly hours</h2>
@@ -439,6 +447,20 @@ function WeeklyHours({ onSaved }: { onSaved: () => void }) {
           </div>
         )}
       </form>
+      {confirmingSave && (
+        <ConfirmDialog
+          title="Save your new weekly hours?"
+          confirmLabel="Save hours"
+          busyLabel="Saving…"
+          onConfirm={save}
+          onClose={() => setConfirmingSave(false)}
+        >
+          <p>
+            Patients can book the new times straight away, and free times that no longer fit your hours close. Booked appointments
+            are always kept — you&apos;ll see any that now fall outside your hours.
+          </p>
+        </ConfirmDialog>
+      )}
     </Card>
   );
 }

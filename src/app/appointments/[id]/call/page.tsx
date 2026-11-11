@@ -1,38 +1,31 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { Alert, Button, ButtonLink, Card, Container, PageLoading } from "@/components/ui";
-import { api, messageOf } from "@/lib/api";
+import { messageOf } from "@/lib/api";
 import { dashboardPath, useAuth } from "@/lib/auth";
-import type { VideoToken } from "@/lib/types";
-
-const VideoRoom = dynamic(() => import("@/components/video-room"), {
-  ssr: false,
-  loading: () => <p className="py-16 text-center text-slate-500">Starting video…</p>,
-});
+import { useCall, useCallStage } from "@/lib/call";
 
 function Call() {
-  const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const id = Number(useParams<{ id: string }>().id);
   const { session } = useAuth();
+  const { call, notice, join, requestLeave } = useCall();
   const [joining, setJoining] = useState(false);
-  const [token, setToken] = useState<VideoToken | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [leaving, setLeaving] = useState(false);
   const home = session ? dashboardPath(session.role) : "/";
+  // While this page is open, the call is shown full size below this header.
+  useCallStage(id);
 
   // The token is requested on click (not on page load) so the browser's camera/microphone
   // prompt follows a deliberate action, and a fresh token is used for every join.
-  async function join() {
+  async function start() {
     setJoining(true);
     setError(null);
     try {
-      setToken(await api<VideoToken>(`/appointments/${id}/video-token`, { method: "POST" }));
+      await join(id);
     } catch (e) {
       setError(messageOf(e));
     } finally {
@@ -40,38 +33,47 @@ function Call() {
     }
   }
 
-  if (token) {
+  if (call?.appointmentId === id) {
     return (
-      <Container className="py-6">
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold text-ink">Video consultation</h1>
-          <Button variant="secondary" size="sm" onClick={() => setLeaving(true)}>
-            Back to dashboard
-          </Button>
+      <Container className="pb-3 pt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-lg font-semibold text-ink">Video consultation</h1>
+            <p className="text-sm text-slate-600">
+              You can use the menu to open other pages — the call carries on in a small window.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <ButtonLink href={home} variant="secondary" size="sm">
+              Back to dashboard
+            </ButtonLink>
+            <Button variant="danger" size="sm" onClick={requestLeave}>
+              Leave call
+            </Button>
+          </div>
         </div>
-        <VideoRoom
-          token={token.token}
-          serverUrl={token.url}
-          onLeave={() => router.push(home)}
-          onLeaveRequest={() => setLeaving(true)}
-        />
-        {leaving && (
-          <ConfirmDialog
-            title="Leave the consultation?"
-            confirmLabel="Leave call"
-            busyLabel="Leaving…"
-            cancelLabel="Stay in the call"
-            tone="danger"
-            onConfirm={async () => router.push(home)}
-            onClose={() => setLeaving(false)}
-          >
-            <p>Your camera and microphone switch off. You can rejoin from your dashboard while the appointment is on.</p>
-          </ConfirmDialog>
-        )}
       </Container>
     );
   }
 
+  if (call) {
+    return (
+      <Container className="max-w-xl py-12">
+        <Card>
+          <h1 className="text-2xl font-bold text-ink">You&apos;re in another video call</h1>
+          <p className="mt-2 text-slate-600">Leave that consultation before joining this one.</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <ButtonLink href={`/appointments/${call.appointmentId}/call`}>Return to that call</ButtonLink>
+            <Button variant="danger" onClick={requestLeave}>
+              Leave that call
+            </Button>
+          </div>
+        </Card>
+      </Container>
+    );
+  }
+
+  const dropped = notice?.appointmentId === id ? notice.text : null;
   return (
     <Container className="max-w-xl py-12">
       <Card>
@@ -85,15 +87,19 @@ function Call() {
           <li>Allow camera and microphone access when your browser asks.</li>
           <li>Use a recent Chrome, Edge, Firefox or Safari, ideally with headphones.</li>
           <li>Only you and the other participant of this appointment can join.</li>
+          <li>
+            Once you&apos;re in, you can open other pages of MedConnect — the call keeps going in a small window. Closing or
+            reloading the tab ends it.
+          </li>
         </ul>
-        {error && (
+        {(error || dropped) && (
           <div className="mt-5">
-            <Alert tone="error">{error}</Alert>
+            <Alert tone={error ? "error" : "warning"}>{error ?? dropped}</Alert>
           </div>
         )}
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button size="lg" onClick={join} disabled={joining}>
-            {joining ? "Connecting…" : "Join consultation"}
+          <Button size="lg" onClick={start} disabled={joining}>
+            {joining ? "Connecting…" : dropped ? "Rejoin consultation" : "Join consultation"}
           </Button>
           <ButtonLink href={home} variant="secondary" size="lg">
             Back

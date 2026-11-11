@@ -12,6 +12,7 @@ import { Alert, Button, Card, Container, EmptyState, PageHeader, PageLoading } f
 import { api, messageOf } from "@/lib/api";
 import { formatDate, formatTime } from "@/lib/format";
 import { refKey } from "@/lib/health";
+import { useLeaveGuard } from "@/lib/leave-guard";
 import { timeAgo } from "@/lib/notifications";
 import type { AccessLogEntry, DoctorPublic, MedicalHistory, PatientAppointment, ShareItemType, Sharing } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
@@ -110,6 +111,9 @@ function ManageSharing() {
       setSaving(false);
     }
   }
+
+  // Ticks changed but not saved: leaving the page asks first.
+  useLeaveGuard(state !== null && !sameSet(excluded, new Set(state.sharing.excluded.map(refKey))));
 
   if (error) {
     return (

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 
 import { useAuth } from "@/lib/auth";
+import { useCall } from "@/lib/call";
+import { useHasUnsavedChanges } from "@/lib/leave-guard";
 import { useIsClient } from "@/lib/use-is-client";
 
 import { ConfirmDialog } from "./confirm-dialog";
@@ -29,6 +31,19 @@ const linksByRole = {
 };
 
 type NavItem = { href: string; label: string };
+
+/** What else logging out ends: a video call in progress, unsaved changes on the page. */
+function LogoutNote() {
+  const { call } = useCall();
+  const unsaved = useHasUnsavedChanges()();
+  return (
+    <>
+      {call && <p className="font-semibold text-red-700">This also ends your video consultation.</p>}
+      {unsaved && <p className="font-semibold text-red-700">Changes you haven&apos;t saved on this page will be lost.</p>}
+      <p>You&apos;ll need your email and password to log in again.</p>
+    </>
+  );
+}
 
 function NavLinkList({ links, activePath, onNavigate }: { links: NavItem[]; activePath: string | null; onNavigate: () => void }) {
   return links.map((l) => (
@@ -133,10 +148,9 @@ export function Navbar() {
           onConfirm={handleLogout}
           onClose={() => setConfirmingLogout(false)}
         >
-          <p>You&apos;ll need your email and password to log in again.</p>
+          <LogoutNote />
         </ConfirmDialog>
       )}
     </header>
   );
 }
-

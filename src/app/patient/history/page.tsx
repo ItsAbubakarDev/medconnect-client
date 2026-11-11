@@ -27,6 +27,7 @@ import { api, messageOf } from "@/lib/api";
 import { clinicToday } from "@/lib/format";
 import { BLOOD_GROUPS, DOCUMENT_LABELS, KIND_LABELS, documentTitle } from "@/lib/health";
 import type { TimelineItem } from "@/lib/health";
+import { useDiscardConfirm, useLeaveGuard } from "@/lib/leave-guard";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import type { BloodGroup, DocumentType, HealthEntry, HealthEntryKind, MedicalDocument, MedicalHistory } from "@/lib/types";
 
@@ -66,6 +67,8 @@ function ProfileCard({ history, onSaved }: { history: MedicalHistory; onSaved: (
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [savedForm, setSavedForm] = useState(form);
+  useLeaveGuard(JSON.stringify(form) !== JSON.stringify(savedForm));
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -81,6 +84,7 @@ function ProfileCard({ history, onSaved }: { history: MedicalHistory; onSaved: (
           is_private: form.is_private,
         },
       });
+      setSavedForm(form);
       setMessage({ tone: "success", text: "Saved." });
       onSaved();
     } catch (err) {
@@ -172,6 +176,8 @@ function DocumentEditDialog({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [initial] = useState(form);
+  const { requestClose, discardDialog } = useDiscardConfirm(JSON.stringify(form) !== JSON.stringify(initial), onClose);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -187,80 +193,86 @@ function DocumentEditDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={onClose}>
+    <>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="doc-edit-title"
-        className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6"
-        onMouseDown={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+        onMouseDown={() => !saving && requestClose()}
       >
-        <h2 id="doc-edit-title" className="text-lg font-bold text-ink">
-          Edit document details
-        </h2>
-        <form onSubmit={save} className="mt-5 space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Type" htmlFor="d-type">
-              <Select
-                id="d-type"
-                value={form.document_type}
-                onChange={(e) => setForm((f) => ({ ...f, document_type: e.target.value as DocumentType }))}
-              >
-                {(Object.keys(DOCUMENT_LABELS) as DocumentType[]).map((t) => (
-                  <option key={t} value={t}>
-                    {DOCUMENT_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Date of the report" htmlFor="d-date">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="doc-edit-title"
+          className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <h2 id="doc-edit-title" className="text-lg font-bold text-ink">
+            Edit document details
+          </h2>
+          <form onSubmit={save} className="mt-5 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Type" htmlFor="d-type">
+                <Select
+                  id="d-type"
+                  value={form.document_type}
+                  onChange={(e) => setForm((f) => ({ ...f, document_type: e.target.value as DocumentType }))}
+                >
+                  {(Object.keys(DOCUMENT_LABELS) as DocumentType[]).map((t) => (
+                    <option key={t} value={t}>
+                      {DOCUMENT_LABELS[t]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Date of the report" htmlFor="d-date">
+                <Input
+                  id="d-date"
+                  type="date"
+                  required
+                  max={clinicToday()}
+                  value={form.report_date}
+                  onChange={(e) => setForm((f) => ({ ...f, report_date: e.target.value }))}
+                />
+              </Field>
+            </div>
+            <Field label="Title" htmlFor="d-title">
               <Input
-                id="d-date"
-                type="date"
-                required
-                max={clinicToday()}
-                value={form.report_date}
-                onChange={(e) => setForm((f) => ({ ...f, report_date: e.target.value }))}
+                id="d-title"
+                maxLength={200}
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               />
             </Field>
-          </div>
-          <Field label="Title" htmlFor="d-title">
-            <Input
-              id="d-title"
-              maxLength={200}
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            />
-          </Field>
-          <Field label="Doctor or hospital" htmlFor="d-provider">
-            <Input
-              id="d-provider"
-              maxLength={255}
-              value={form.provider_name}
-              onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
-            />
-          </Field>
-          <Field label="Description" htmlFor="d-desc">
-            <Textarea
-              id="d-desc"
-              rows={3}
-              maxLength={5000}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            />
-          </Field>
-          {error && <Alert tone="error">{error}</Alert>}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={saving}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </div>
-        </form>
+            <Field label="Doctor or hospital" htmlFor="d-provider">
+              <Input
+                id="d-provider"
+                maxLength={255}
+                value={form.provider_name}
+                onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
+              />
+            </Field>
+            <Field label="Description" htmlFor="d-desc">
+              <Textarea
+                id="d-desc"
+                rows={3}
+                maxLength={5000}
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </Field>
+            {error && <Alert tone="error">{error}</Alert>}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="secondary" onClick={requestClose} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+      {discardDialog}
+    </>
   );
 }
 

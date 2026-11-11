@@ -9,6 +9,7 @@ import { RequireRole } from "@/components/require-role";
 import { Alert, Button, Card, Container, EmptyState, Field, PageHeader, PageLoading, Textarea } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useDiscardConfirm } from "@/lib/leave-guard";
 import type { DoctorReview, DoctorReviewPage } from "@/lib/types";
 
 const PAGE_SIZE = 10;
@@ -27,6 +28,8 @@ function ReplyForm({
   const [text, setText] = useState(review.reply ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cancelling (or leaving the page) with a reply typed but not posted asks first.
+  const { requestClose, discardDialog } = useDiscardConfirm(text.trim() !== (review.reply ?? "").trim(), onCancel);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -59,10 +62,11 @@ function ReplyForm({
         <Button type="submit" size="sm" disabled={saving || !text.trim()}>
           {saving ? "Posting…" : review.reply ? "Save reply" : "Post reply"}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onCancel} disabled={saving}>
+        <Button variant="secondary" size="sm" onClick={requestClose} disabled={saving}>
           Cancel
         </Button>
       </div>
+      {discardDialog}
     </form>
   );
 }

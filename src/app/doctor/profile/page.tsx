@@ -5,9 +5,22 @@ import { Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { RequireRole } from "@/components/require-role";
-import { Alert, Button, ButtonLink, Card, Container, Field, Input, PageHeader, PageLoading, Select, Textarea } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  ButtonLink,
+  Card,
+  Container,
+  Field,
+  Input,
+  PageHeader,
+  PageLoading,
+  Select,
+  Textarea,
+} from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLeaveGuard } from "@/lib/leave-guard";
 import { CITIES } from "@/lib/cities";
 import { SPECIALTY_SUGGESTIONS } from "@/lib/specialties";
 import type { DoctorProfile } from "@/lib/types";
@@ -30,6 +43,8 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [complete, setComplete] = useState(Boolean(profile.full_name && profile.specialty));
+  const [savedForm, setSavedForm] = useState(() => JSON.stringify([form, online]));
+  useLeaveGuard(JSON.stringify([form, online]) !== savedForm);
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const orNull = (v: string) => (v.trim() === "" ? null : v.trim());
@@ -56,6 +71,7 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
         },
       });
       setComplete(Boolean(saved.full_name && saved.specialty));
+      setSavedForm(JSON.stringify([form, online]));
       reloadProfile();
       setMessage({ tone: "success", text: "Profile saved. This is what patients see on your public page." });
     } catch (err) {

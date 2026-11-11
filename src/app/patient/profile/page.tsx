@@ -8,6 +8,7 @@ import { RequireRole } from "@/components/require-role";
 import { Alert, Button, ButtonLink, Card, Container, Field, Input, PageHeader, PageLoading, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLeaveGuard } from "@/lib/leave-guard";
 import type { PatientProfile } from "@/lib/types";
 
 const GENDERS = ["Female", "Male", "Other", "Prefer not to say"];
@@ -24,6 +25,8 @@ function ProfileForm({ profile, welcome }: { profile: PatientProfile; welcome: b
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [hasName, setHasName] = useState(Boolean(profile.full_name));
+  const [savedForm, setSavedForm] = useState(form);
+  useLeaveGuard(JSON.stringify(form) !== JSON.stringify(savedForm));
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const genderOptions = form.gender && !GENDERS.includes(form.gender) ? [form.gender, ...GENDERS] : GENDERS;
@@ -43,7 +46,9 @@ function ProfileForm({ profile, welcome }: { profile: PatientProfile; welcome: b
           emergency_contact: form.emergency_contact.trim() || null,
         },
       });
-      setForm((f) => ({ ...f, full_name: saved.full_name ?? "" }));
+      const next = { ...form, full_name: saved.full_name ?? "" };
+      setForm(next);
+      setSavedForm(next);
       setHasName(Boolean(saved.full_name));
       reloadProfile();
       setMessage({ tone: "success", text: "Profile saved." });
@@ -78,7 +83,14 @@ function ProfileForm({ profile, welcome }: { profile: PatientProfile; welcome: b
             <Input id="date_of_birth" type="date" value={form.date_of_birth} onChange={set("date_of_birth")} />
           </Field>
           <Field label="Phone" htmlFor="phone">
-            <Input id="phone" type="tel" maxLength={50} placeholder="+92 300 1234567" value={form.phone} onChange={set("phone")} />
+            <Input
+              id="phone"
+              type="tel"
+              maxLength={50}
+              placeholder="+92 300 1234567"
+              value={form.phone}
+              onChange={set("phone")}
+            />
           </Field>
           <Field label="Emergency contact" htmlFor="emergency_contact">
             <Input
