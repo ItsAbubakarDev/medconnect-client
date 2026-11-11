@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { CancellationInfo } from "@/components/cancellation-info";
+import { ClosingNote } from "@/components/closing-note";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FollowUpActions, FollowUpStatusBadge, FollowUpSummary, FollowUpsCard } from "@/components/follow-ups-card";
 import { Stars } from "@/components/rating";
@@ -27,14 +28,18 @@ const slotKey = (a: PatientAppointment) => `${a.slot.date}T${a.slot.start_time}`
 function SharingLine({ appointment: a, doctorName }: { appointment: PatientAppointment; doctorName: string }) {
   const now = useNow();
   const s = a.sharing;
-  if (!s || a.status === "cancelled") return null;
+  if (!s || a.status === "cancelled" || a.status === "expired") return null;
   const access = s.access;
   let text: string;
   if (s.status === "revoked") text = "You stopped sharing your medical history for this appointment.";
   else if (access.reason === "pending") text = `Your medical history will be shared with ${doctorName} once they accept.`;
   else if (access.reason === "expired") text = "The follow-up period has ended; your history is no longer shared.";
-  else text = `Your medical history is shared with ${doctorName} until ${formatDate(access.ends_on)}${s.excluded_count ? ` (${s.excluded_count} item${s.excluded_count > 1 ? "s" : ""} left out)` : ""}.`;
-  const viewed = s.doctor_views > 0 && s.last_viewed_at && now !== null ? ` Viewed ${s.doctor_views} time${s.doctor_views > 1 ? "s" : ""}, last ${timeAgo(s.last_viewed_at, now)}.` : "";
+  else
+    text = `Your medical history is shared with ${doctorName} until ${formatDate(access.ends_on)}${s.excluded_count ? ` (${s.excluded_count} item${s.excluded_count > 1 ? "s" : ""} left out)` : ""}.`;
+  const viewed =
+    s.doctor_views > 0 && s.last_viewed_at && now !== null
+      ? ` Viewed ${s.doctor_views} time${s.doctor_views > 1 ? "s" : ""}, last ${timeAgo(s.last_viewed_at, now)}.`
+      : "";
   return (
     <p className="mt-2 text-sm text-slate-600">
       {text}
@@ -109,14 +114,18 @@ function AppointmentItem({
       <div id={`appointment-${appointment.id}`} className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/doctors/${appointment.doctor_id}`} className="truncate text-lg font-semibold text-ink hover:text-brand-700">
+            <Link
+              href={`/doctors/${appointment.doctor_id}`}
+              className="truncate text-lg font-semibold text-ink hover:text-brand-700"
+            >
               {doctor === undefined ? "Loading doctor…" : (doctor?.full_name ?? "Doctor")}
             </Link>
             <StatusBadge status={appointment.status} />
           </div>
           {doctor?.specialty && <p className="text-sm font-medium text-brand-700">{doctor.specialty}</p>}
           <p className="mt-2 text-slate-700">
-            {formatDate(appointment.slot.date)} · {formatTime(appointment.slot.start_time)} – {formatTime(appointment.slot.end_time)}
+            {formatDate(appointment.slot.date)} · {formatTime(appointment.slot.start_time)} –{" "}
+            {formatTime(appointment.slot.end_time)}
           </p>
           {appointment.follow_up && (
             <p className="mt-1 text-sm font-medium text-violet-800">
@@ -125,9 +134,8 @@ function AppointmentItem({
             </p>
           )}
           {appointment.notes && <p className="mt-1 break-words text-sm text-slate-600">Your note: {appointment.notes}</p>}
-          {appointment.status === "pending" && (
-            <p className="mt-1 text-sm text-amber-800">Waiting for the doctor to confirm.</p>
-          )}
+          {appointment.status === "pending" && <p className="mt-1 text-sm text-amber-800">Waiting for the doctor to confirm.</p>}
+          <ClosingNote appointment={appointment} viewer="patient" />
           <CancellationInfo appointment={appointment} viewer="patient" />
           <SharingLine appointment={appointment} doctorName={doctor?.full_name ?? "your doctor"} />
           <ReviewLine appointment={appointment} onOpen={() => setReviewing(true)} />
@@ -260,7 +268,7 @@ function PatientDashboard() {
         .filter((a) => a.status === "pending" || a.status === "confirmed")
         .sort((a, b) => slotKey(a).localeCompare(slotKey(b))),
       history: all
-        .filter((a) => a.status === "completed" || a.status === "cancelled")
+        .filter((a) => a.status === "completed" || a.status === "cancelled" || a.status === "expired")
         .sort((a, b) => slotKey(b).localeCompare(slotKey(a))),
     };
   }, [list]);
@@ -297,7 +305,9 @@ function PatientDashboard() {
 
       <div className="mt-6 space-y-4">
         {bookedId && (
-          <Alert tone="success">Appointment booked. The doctor will confirm it shortly — you&apos;ll see the status change here.</Alert>
+          <Alert tone="success">
+            Appointment booked. The doctor will confirm it shortly — you&apos;ll see the status change here.
+          </Alert>
         )}
         {profileLoaded && !displayName && (
           <Alert tone="warning">

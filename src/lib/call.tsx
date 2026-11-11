@@ -28,6 +28,8 @@ export interface ActiveCall {
 export interface CallNotice {
   appointmentId: number;
   text: string;
+  /** false once the consultation itself has ended (the server closed its room). */
+  canRejoin: boolean;
 }
 
 interface CallContextValue {
@@ -42,7 +44,7 @@ interface CallContextValue {
   dismissNotice(): void;
   setStage(appointmentId: number | null): void;
   /** The connection ended without the user leaving (dropped, opened elsewhere, room closed). */
-  onEnded(appointmentId: number, text: string): void;
+  onEnded(appointmentId: number, text: string, canRejoin: boolean): void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
@@ -94,7 +96,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       startTransition(() =>
         setNotice(
           (n) =>
-            n ?? { appointmentId: last.appointmentId, text: "Your video consultation was interrupted when the page reloaded." },
+            n ?? {
+              appointmentId: last.appointmentId,
+              text: "Your video consultation was interrupted when the page reloaded.",
+              canRejoin: true,
+            },
         ),
       );
     }
@@ -142,13 +148,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setStageState(appointmentId);
   }, []);
 
-  const onEnded = useCallback((appointmentId: number, text: string) => {
+  const onEnded = useCallback((appointmentId: number, text: string, canRejoin: boolean) => {
     if (leaving.current) return;
     leaving.current = true;
     remember(null);
     setCall(null);
     setConfirmingLeave(false);
-    setNotice({ appointmentId, text });
+    setNotice({ appointmentId, text, canRejoin });
   }, []);
 
   const value = useMemo<CallContextValue>(
@@ -223,24 +229,26 @@ function RejoinBanner({ notice }: { notice: CallNotice }) {
       <p className="font-semibold">{notice.text}</p>
       {error && <p className="mt-1 text-red-700">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-lg bg-brand-700 px-3 py-1.5 font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
-          onClick={async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              await join(notice.appointmentId);
-            } catch (e) {
-              setError(messageOf(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Connecting…" : "Rejoin call"}
-        </button>
+        {notice.canRejoin && (
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg bg-brand-700 px-3 py-1.5 font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await join(notice.appointmentId);
+              } catch (e) {
+                setError(messageOf(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Connecting…" : "Rejoin call"}
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -266,7 +274,7 @@ export function CallSlot() {
       serverUrl={call.serverUrl}
       full={stage === call.appointmentId}
       onLeaveRequest={requestLeave}
-      onEnded={(text) => onEnded(call.appointmentId, text)}
+      onEnded={(text, canRejoin) => onEnded(call.appointmentId, text, canRejoin)}
     />
   );
 }

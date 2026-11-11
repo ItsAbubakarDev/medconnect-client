@@ -24,6 +24,8 @@ function accessText(s: Sharing, doctor: string): { tone: "success" | "info" | "w
     return { tone: "warning", text: "This appointment was cancelled, so nothing is shared any more." };
   if (s.status === "revoked")
     return { tone: "warning", text: `You stopped sharing. ${doctor} can't see your medical history through this appointment.` };
+  if (s.access.reason === "appointment_expired")
+    return { tone: "warning", text: "This appointment expired, so nothing is shared any more." };
   if (s.access.reason === "pending")
     return { tone: "info", text: `${doctor} will be able to see what's ticked below once they accept the appointment.` };
   if (s.access.reason === "expired")
@@ -131,7 +133,7 @@ function ManageSharing() {
   const doctorName = doctor?.full_name ?? "Your doctor";
   const status = accessText(sharing, doctorName);
   const cancelled = sharing.ended_reason === "cancelled";
-  const editable = !cancelled && sharing.access.reason !== "expired";
+  const editable = !cancelled && sharing.access.reason !== "expired" && sharing.access.reason !== "appointment_expired";
   const changed = !sameSet(excluded, new Set(sharing.excluded.map(refKey)));
 
   return (

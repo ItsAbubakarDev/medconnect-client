@@ -73,7 +73,8 @@ function Call() {
     );
   }
 
-  const dropped = notice?.appointmentId === id ? notice.text : null;
+  const dropped = notice?.appointmentId === id ? notice : null;
+  const over = dropped !== null && !dropped.canRejoin; // the consultation itself has ended
   return (
     <Container className="max-w-xl py-12">
       <Card>
@@ -94,15 +95,17 @@ function Call() {
         </ul>
         {(error || dropped) && (
           <div className="mt-5">
-            <Alert tone={error ? "error" : "warning"}>{error ?? dropped}</Alert>
+            <Alert tone={error ? "error" : "warning"}>{error ?? dropped?.text}</Alert>
           </div>
         )}
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button size="lg" onClick={start} disabled={joining}>
-            {joining ? "Connecting…" : dropped ? "Rejoin consultation" : "Join consultation"}
-          </Button>
-          <ButtonLink href={home} variant="secondary" size="lg">
-            Back
+          {!over && (
+            <Button size="lg" onClick={start} disabled={joining}>
+              {joining ? "Connecting…" : dropped ? "Rejoin consultation" : "Join consultation"}
+            </Button>
+          )}
+          <ButtonLink href={home} variant={over ? "primary" : "secondary"} size="lg">
+            {over ? "Back to dashboard" : "Back"}
           </ButtonLink>
         </div>
       </Card>

@@ -7,6 +7,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { CancelDialog } from "@/components/cancel-dialog";
 import { DoctorFollowUps } from "@/components/doctor-follow-ups";
 import { CancellationInfo } from "@/components/cancellation-info";
+import { ClosingNote } from "@/components/closing-note";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RequireRole } from "@/components/require-role";
 import { StatusBadge } from "@/components/status-badge";
@@ -37,6 +38,7 @@ const STATUS_FILTERS: { value: "" | AppointmentStatus; label: string }[] = [
   { value: "confirmed", label: "Confirmed" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "expired", label: "Expired" },
 ];
 
 function AppointmentRow({
@@ -98,11 +100,12 @@ function AppointmentRow({
               <span className="font-medium">Reason for visit:</span> {appointment.notes}
             </p>
           )}
+          <ClosingNote appointment={appointment} viewer="doctor" />
           <CancellationInfo appointment={appointment} viewer="doctor" />
           {appointment.history_access?.reason === "pending" && (
             <p className="mt-2 text-sm text-slate-600">The patient&apos;s medical history opens once you accept.</p>
           )}
-          {appointment.history_access?.reason === "revoked" && status !== "cancelled" && (
+          {appointment.history_access?.reason === "revoked" && status !== "cancelled" && status !== "expired" && (
             <p className="mt-2 text-sm text-slate-600">
               The patient isn&apos;t sharing their medical history for this appointment.
             </p>
@@ -172,7 +175,10 @@ function AppointmentRow({
           <p>
             <span className="font-semibold text-ink">{patientName}</span> · <span className="font-semibold text-ink">{when}</span>
           </p>
-          <p>It moves to completed and the patient is notified. This can&apos;t be undone.</p>
+          <p>
+            It moves to completed and the patient is notified. Its video call closes, so if you&apos;re still in it, the call
+            ends. This can&apos;t be undone.
+          </p>
         </ConfirmDialog>
       )}
       {confirming === "reopen" && (

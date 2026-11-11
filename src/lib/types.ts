@@ -1,7 +1,7 @@
 // Mirrors the backend's Pydantic response models (medconnect-backend/app/schemas).
 
 export type Role = "doctor" | "patient";
-export type AppointmentStatus = "pending" | "confirmed" | "completed" | "cancelled";
+export type AppointmentStatus = "pending" | "confirmed" | "completed" | "cancelled" | "expired";
 export type CancellationReason = "busy" | "other";
 
 export interface Slot {
@@ -25,6 +25,13 @@ export interface Appointment {
   cancellation_reason: CancellationReason | null;
   cancellation_note: string | null;
   completed_at: string | null;
+  /** Closed by the server rather than the doctor: completed because a consultation record was written. */
+  completed_automatically: boolean;
+  expired_at: string | null;
+  /** pending: the doctor never accepted it; confirmed: it was never marked completed (null for older rows). */
+  expired_from: "pending" | "confirmed" | null;
+  /** For a pending/confirmed appointment: when it closes by itself if nobody acts first. */
+  closes_at: string | null;
   created_at: string;
   updated_at: string;
   slot: Slot;
@@ -199,7 +206,8 @@ export type NotificationType =
   | "follow_up_recommended"
   | "follow_up_due"
   | "follow_up_removed"
-  | "follow_up_booked";
+  | "follow_up_booked"
+  | "appointment_expired";
 
 export interface AppNotification {
   id: number;
@@ -330,7 +338,7 @@ export interface ShareItemRef {
 export interface AccessState {
   open: boolean;
   /** Why it's closed: pending (opens on accept), cancelled, revoked, expired. */
-  reason: "pending" | "cancelled" | "revoked" | "expired" | null;
+  reason: "pending" | "cancelled" | "appointment_expired" | "revoked" | "expired" | null;
   ends_on: string;
 }
 

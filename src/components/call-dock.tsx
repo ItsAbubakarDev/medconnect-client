@@ -16,17 +16,20 @@ import { ConnectionState, DisconnectReason, Track } from "livekit-client";
 import Link from "next/link";
 import { useRef, useState } from "react";
 
-function endedText(reason?: DisconnectReason): string | null {
+/** Why the call ended (and whether rejoining makes sense), or null if we hung up ourselves. */
+function ended(reason?: DisconnectReason): { text: string; canRejoin: boolean } | null {
   switch (reason) {
     case DisconnectReason.CLIENT_INITIATED:
-      return null; // we hung up ourselves
+      return null;
     case DisconnectReason.DUPLICATE_IDENTITY:
-      return "You joined this call in another tab or on another device, so it ended here.";
-    case DisconnectReason.PARTICIPANT_REMOVED:
+      return { text: "You joined this call in another tab or on another device, so it ended here.", canRejoin: true };
     case DisconnectReason.ROOM_DELETED:
-      return "The video call was closed.";
+      // The server closes the room when the appointment is completed, cancelled or expires.
+      return { text: "The consultation has ended, so its video call was closed.", canRejoin: false };
+    case DisconnectReason.PARTICIPANT_REMOVED:
+      return { text: "You were removed from the video call.", canRejoin: false };
     default:
-      return "The connection to the video call was lost.";
+      return { text: "The connection to the video call was lost.", canRejoin: true };
   }
 }
 
@@ -113,7 +116,7 @@ export default function CallDock({
   serverUrl: string;
   full: boolean;
   onLeaveRequest: () => void;
-  onEnded: (text: string) => void;
+  onEnded: (text: string, canRejoin: boolean) => void;
 }) {
   const [deviceProblem, setDeviceProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,12 +152,12 @@ export default function CallDock({
           connected.current = true;
         }}
         onDisconnected={(reason) => {
-          const text = endedText(reason);
-          if (text) onEnded(text);
+          const why = ended(reason);
+          if (why) onEnded(why.text, why.canRejoin);
         }}
         onError={(e) => {
           // Before connecting, an error means there's no call; after, it's shown and the call goes on.
-          if (!connected.current) onEnded(`Couldn't connect to the video call: ${e.message}`);
+          if (!connected.current) onEnded(`Couldn't connect to the video call: ${e.message}`, true);
           else setError(`Connection problem: ${e.message}`);
         }}
         onMediaDeviceFailure={(_failure, kind) =>
