@@ -282,6 +282,17 @@ export interface DocumentFile {
   uploaded_at: string;
 }
 
+/** A document shared in an appointment's video-call chat (it's also in the patient's record). */
+export interface CallDocument {
+  /** The share's id: its files open through /appointments/{appointment_id}/call-documents/{id}/files/… */
+  id: number;
+  appointment_id: number;
+  shared_by: Role;
+  shared_by_name: string | null;
+  created_at: string;
+  document: MedicalDocument;
+}
+
 export interface MedicalDocument {
   id: number;
   patient_id: number;

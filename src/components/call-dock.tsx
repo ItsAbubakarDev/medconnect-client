@@ -5,7 +5,6 @@ import "@livekit/components-styles";
 import {
   LiveKitRoom,
   TrackToggle,
-  VideoConference,
   VideoTrack,
   isTrackReference,
   useConnectionState,
@@ -15,6 +14,8 @@ import {
 import { ConnectionState, DisconnectReason, Track } from "livekit-client";
 import Link from "next/link";
 import { useRef, useState } from "react";
+
+import { CallConference } from "./call-conference";
 
 /** Why the call ended (and whether rejoining makes sense), or null if we hung up ourselves. */
 function ended(reason?: DisconnectReason): { text: string; canRejoin: boolean } | null {
@@ -186,7 +187,7 @@ export default function CallDock({
             }
           }}
         >
-          <VideoConference />
+          <CallConference appointmentId={appointmentId} />
         </div>
         {!full && <MiniCall appointmentId={appointmentId} onLeaveRequest={onLeaveRequest} />}
         {!full && deviceProblem && <p className="px-3 pb-2 text-xs text-amber-300">{deviceProblem}</p>}

@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { ConsultationForm } from "@/components/health/consultation-form";
-import { FileViewer, doctorFileUrls, ownPrescriptionUrls } from "@/components/health/file-viewer";
+import { FileViewer, callFileUrls, doctorFileUrls, ownPrescriptionUrls } from "@/components/health/file-viewer";
 import type { FileUrls } from "@/components/health/file-viewer";
 import { ConsultationCard, DocumentGroups, QuickGlance, Timeline } from "@/components/health/history-views";
 import { RequireRole } from "@/components/require-role";
@@ -13,9 +13,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { Alert, Card, Container, EmptyState, PageLoading } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
 import { clinicToday, formatDate, formatTime, hasStarted } from "@/lib/format";
+import { documentTitle, formatSize } from "@/lib/health";
 import { TYPE_LABELS } from "@/lib/follow-ups";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import type { Consultation, DoctorPatientHistory, MedicalDocument, OwnConsultation } from "@/lib/types";
+import type { CallDocument, Consultation, DoctorPatientHistory, MedicalDocument, OwnConsultation } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
 type Tab = "timeline" | "documents" | "consultation";
@@ -38,6 +39,8 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
   const [past, setPast] = useState<OwnConsultation[] | null>(null);
   const [viewing, setViewing] = useState<{ document: MedicalDocument; urls: FileUrls; fileId?: number } | null>(null);
   const [version, setVersion] = useState(0);
+  // Documents shared in this appointment's video call (open for good, whatever the history access).
+  const [callDocs, setCallDocs] = useState<CallDocument[]>([]);
   // The patient updating their history before the visit (a notification) shows up here.
   const liveTick = useLiveRefresh(120_000);
 
@@ -79,6 +82,16 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
       cancelled = true;
     };
   }, [appointmentId, version]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<CallDocument[]>(`/appointments/${appointmentId}/call-documents`)
+      .then((list) => !cancelled && setCallDocs(list))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [appointmentId, liveTick]);
 
   if (!history || (!own && !history.error && !history.closed && !history.data)) return <PageLoading />;
   if (history.error) {
@@ -144,6 +157,31 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
             </Link>
           </Alert>
         </div>
+      )}
+
+      {callDocs.length > 0 && (
+        <section className="mt-6" aria-labelledby="call-docs-title">
+          <h2 id="call-docs-title" className="mb-2 text-lg font-semibold text-ink">
+            Shared in the video call ({callDocs.length})
+          </h2>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {callDocs.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => setViewing({ document: s.document, urls: callFileUrls(appointmentId, s.id) })}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-brand-700"
+                >
+                  <span className="block truncate font-semibold text-ink">{documentTitle(s.document)}</span>
+                  <span className="block truncate text-sm text-slate-600">
+                    {s.shared_by === "doctor" ? "Shared by you" : `Shared by ${s.shared_by_name ?? "the patient"}`} ·{" "}
+                    {formatSize(s.document.files.reduce((n, f) => n + f.size_bytes, 0))}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {history.closed && (

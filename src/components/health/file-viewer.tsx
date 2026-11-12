@@ -32,6 +32,14 @@ export const ownPrescriptionUrls =
   (fileId, kind) =>
     `/doctors/me/consultations/${consultationId}/files/${fileId}${kind === "download" ? "?download=true" : ""}`;
 
+/** A document shared in an appointment's video call (either participant, for good). */
+export const callFileUrls =
+  (appointmentId: number, shareId: number): FileUrls =>
+  (fileId, kind) =>
+    `/appointments/${appointmentId}/call-documents/${shareId}/files/${fileId}${suffix(kind)}`;
+
+export const WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 /** Files in viewing order: a scan study's images series by series, in instance order. */
 export function orderedFiles(files: DocumentFile[]): DocumentFile[] {
   const seriesOrder = new Map<string, number>();
@@ -213,6 +221,8 @@ export function FileViewer({
                   This DICOM file has no image preview (it may be a report or an unusual format). Download it to open in a DICOM
                   viewer.
                 </p>
+              ) : file.content_type === WORD_TYPE ? (
+                <p>Word documents can&apos;t be shown here. Download it to open it in Word or another document app.</p>
               ) : (
                 <p>This file can&apos;t be shown here. Download it to open it.</p>
               )}
