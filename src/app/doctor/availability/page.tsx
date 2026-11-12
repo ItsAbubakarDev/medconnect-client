@@ -628,6 +628,21 @@ function MyTimes({ version, onChanged }: { version: number; onChanged: () => voi
                     Break · {s.break_minutes} min
                   </span>
                 );
+                if (s.state === "booked" && s.appointment?.requested) {
+                  // Held for a patient's request to move here (they're still on their own time).
+                  return (
+                    <div key={s.id}>
+                      <div
+                        className="rounded-lg border border-dashed border-amber-500 bg-amber-50 px-2 py-2 text-sm text-amber-900"
+                        title="A patient asked to move their appointment to this time. Answer it from your appointments."
+                      >
+                        <span className="block font-semibold">{label}</span>
+                        <span className="block truncate text-xs">Requested · {s.appointment.patient_name ?? "Patient"}</span>
+                      </div>
+                      {breakAfter}
+                    </div>
+                  );
+                }
                 if (s.state === "booked") {
                   return (
                     <div key={s.id}>

@@ -18,7 +18,10 @@ const PAGE_SIZE = 10;
 
 // Every filter lives in the URL (refresh, back and shared links keep the results). `q` is
 // the name search and `specialty` the chips; the rest are the filter panel.
-const FILTER_KEYS = ["city", "area", "type", "available", "on", "sort"] as const;
+const FILTER_KEYS = ["city", "area", "type", "available", "on", "max_fee", "sort"] as const;
+
+// Fee ceilings offered (PKR); doctors who haven't set a fee are left out when one is chosen.
+const MAX_FEES = [1000, 1500, 2000, 3000, 5000];
 
 const TYPES = [
   { value: "", label: "Any" },
@@ -87,6 +90,7 @@ function DoctorSearch() {
   const available = params.get("available") ?? "";
   const on = params.get("on") ?? "";
   const sort = params.get("sort") ?? "";
+  const maxFee = params.get("max_fee") ?? "";
   const page = Math.max(1, Number(params.get("page")) || 1);
   const requestKey = params.toString();
   const online = type === "online";
@@ -104,6 +108,7 @@ function DoctorSearch() {
     if (!online && area) query.set("area", area);
     if (available) query.set("available", available);
     if (available === "date" && on) query.set("on", on);
+    if (maxFee) query.set("max_fee", maxFee);
     if (sort) query.set("sort", sort);
     api<DoctorList>(`/doctors?${query}`, { auth: false })
       .then((data) => !cancelled && setResult({ key: requestKey, data }))
@@ -111,7 +116,7 @@ function DoctorSearch() {
     return () => {
       cancelled = true;
     };
-  }, [q, specialty, city, area, type, online, available, on, sort, page, requestKey]);
+  }, [q, specialty, city, area, type, online, available, on, maxFee, sort, page, requestKey]);
 
   const current = result?.key === requestKey ? result : null;
   const totalPages = current?.data ? Math.max(1, Math.ceil(current.data.total / PAGE_SIZE)) : 1;
@@ -184,7 +189,7 @@ function DoctorSearch() {
       <section
         id="search-filters"
         aria-label="Filters"
-        className={`${filtersOpen ? "grid" : "hidden"} mt-4 gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 md:mt-6 md:grid lg:grid-cols-[1fr_1fr_auto_1fr_1fr]`}
+        className={`${filtersOpen ? "grid" : "hidden"} mt-4 gap-4 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 md:mt-6 md:grid lg:grid-cols-3 xl:grid-cols-[1fr_1fr_auto_1fr_1fr_1fr]`}
       >
         <Field label="City" htmlFor="f-city" hint={online ? "Not used for online consultations" : undefined}>
           <Select id="f-city" value={city} disabled={online} onChange={(e) => setFilter({ city: e.target.value })}>
@@ -247,6 +252,16 @@ function DoctorSearch() {
             </div>
           )}
         </div>
+        <Field label="Max fee" htmlFor="f-max-fee">
+          <Select id="f-max-fee" value={maxFee} onChange={(e) => setFilter({ max_fee: e.target.value })}>
+            <option value="">Any fee</option>
+            {MAX_FEES.map((fee) => (
+              <option key={fee} value={String(fee)}>
+                Up to Rs. {fee.toLocaleString("en-PK")}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Sort by" htmlFor="f-sort">
           <Select id="f-sort" value={sort} onChange={(e) => setFilter({ sort: e.target.value })}>
             {SORTS.map((s) => (

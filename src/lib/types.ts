@@ -35,6 +35,12 @@ export interface Appointment {
   created_at: string;
   updated_at: string;
   slot: Slot;
+  /** An open request to move it (confirmed only): the time it would move to, held until the doctor answers. */
+  requested_slot: Slot | null;
+  reschedule_requested_at: string | null;
+  reschedule_note: string | null;
+  /** How many times it has moved to another time. */
+  times_moved: number;
 }
 
 export interface PatientAppointment extends Appointment {
@@ -168,7 +174,8 @@ export interface MySlot {
   end_time: string;
   state: "open" | "booked" | "closed";
   started: boolean;
-  appointment: { id: number; status: AppointmentStatus; patient_name: string | null } | null;
+  /** `requested`: held for this appointment's request to move here (it's still on its own time). */
+  appointment: { id: number; status: AppointmentStatus; patient_name: string | null; requested: boolean } | null;
   /** The break after this time before the next one in the session (0 for the last). */
   break_minutes: number;
 }
@@ -207,7 +214,11 @@ export type NotificationType =
   | "follow_up_due"
   | "follow_up_removed"
   | "follow_up_booked"
-  | "appointment_expired";
+  | "appointment_expired"
+  | "reschedule_requested"
+  | "reschedule_withdrawn"
+  | "reschedule_accepted"
+  | "reschedule_declined";
 
 export interface AppNotification {
   id: number;
@@ -523,4 +534,79 @@ export interface FollowUpLink {
   reason: string;
   fee_label: string;
   in_window: boolean;
+}
+
+// ---- the patients' AI assistant
+
+export interface AssistantStatus {
+  /** False when the server has no AI key: the chat button isn't shown. */
+  available: boolean;
+  /** The patient let the assistant read their health record (never the private items). */
+  history_access: boolean;
+  daily_limit: number;
+  used_today: number;
+}
+
+export interface AssistantConversationSummary {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantDoctorCard {
+  id: number;
+  full_name: string | null;
+  specialty: string | null;
+  consultation_fee: string | null;
+  city: string | null;
+  area: string | null;
+  offers_online: boolean;
+  rating_average: number | null;
+  review_count: number;
+  profile_image_url: string | null;
+  next_available: { date: string; start_time: string } | null;
+}
+
+export type AssistantCard =
+  | { type: "emergency" }
+  | { type: "history_access" }
+  | { type: "doctors"; items: AssistantDoctorCard[] }
+  | {
+      type: "times";
+      doctor_id: number;
+      doctor_name: string | null;
+      items: { slot_id: number; date: string; start_time: string; end_time: string }[];
+    }
+  | { type: "proposal"; proposal_id: number };
+
+export interface AssistantMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  cards: AssistantCard[];
+  created_at: string;
+}
+
+export type ProposalKind = "book" | "cancel" | "reschedule";
+export type ProposalStatus = "pending" | "done" | "failed" | "dismissed";
+
+export interface AssistantProposal {
+  id: number;
+  kind: ProposalKind;
+  status: ProposalStatus;
+  /** What the card shows: doctor, time, fee... (written by the server when proposed). */
+  details: Record<string, string | number | boolean | null>;
+  appointment_id: number | null;
+  error: string | null;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+}
+
+export interface AssistantConversation {
+  id: number;
+  title: string;
+  messages: AssistantMessage[];
+  proposals: AssistantProposal[];
 }

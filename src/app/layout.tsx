@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
+import { AssistantWidget } from "@/components/assistant/assistant-widget";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { NotificationToast } from "@/components/notifications";
@@ -34,6 +35,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 </main>
                 <Footer />
                 <NotificationToast />
+                {/* Patients' AI assistant: a chat button on every page (not on the call page). */}
+                <AssistantWidget />
               </CallProvider>
             </LeaveGuardProvider>
           </NotificationsProvider>

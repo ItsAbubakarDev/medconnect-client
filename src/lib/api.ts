@@ -192,3 +192,56 @@ export async function api<T>(
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
+
+/**
+ * A POST whose response is read as a stream (the assistant's reply, as server-sent events),
+ * with the same one-time token refresh as `api`. Resolves to the open response; a refused
+ * request (not 2xx) throws an ApiError with the server's message.
+ */
+export async function apiStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  const send = async () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "text/event-stream" };
+    const access = tokenStore.getAccess();
+    if (access) headers.Authorization = `Bearer ${access}`;
+    try {
+      return await fetch(`${API_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body), signal });
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      throw new ApiError(0, "Can't reach the MedConnect server. Make sure the backend is running.");
+    }
+  };
+  let res = await send();
+  if (res.status === 401 && tokenStore.getRefresh()) {
+    if (await refreshAccessToken()) res = await send();
+    if (res.status === 401) tokenStore.clear();
+  }
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null);
+    throw new ApiError(res.status, errorMessage(data, res.status));
+  }
+  return res;
+}
+
+/** Server-sent events from a streamed response, one {event, data} at a time. */
+export async function* readEvents(res: Response): AsyncGenerator<{ event: string; data: unknown }> {
+  if (!res.body) return;
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let end;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      let event = "message";
+      const data: string[] = [];
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (data.length) yield { event, data: JSON.parse(data.join("\n")) };
+    }
+  }
+}

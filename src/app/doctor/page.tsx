@@ -23,6 +23,7 @@ import {
   PageHeader,
   PageLoading,
   Select,
+  Textarea,
 } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -57,8 +58,11 @@ function AppointmentRow({
 }) {
   // Accept and complete can't be taken back (and tell the patient), and reopening a time lets
   // patients book it, so they're confirmed first.
-  const [confirming, setConfirming] = useState<"accept" | "complete" | "reopen" | null>(null);
+  const [confirming, setConfirming] = useState<"accept" | "complete" | "reopen" | "move" | "decline-move" | null>(null);
+  const [declineNote, setDeclineNote] = useState("");
   const { status, slot } = appointment;
+  const requested = appointment.requested_slot;
+  const requestedWhen = requested ? `${formatDate(requested.date)} at ${formatTime(requested.start_time)}` : "";
   const started = now !== null && hasStarted(slot, now);
   const patientName = appointment.patient.full_name ?? `Patient #${appointment.patient_id}`;
   const when = `${formatDate(slot.date)} at ${formatTime(slot.start_time)}`;
@@ -66,6 +70,17 @@ function AppointmentRow({
   async function confirmAction() {
     await api(`/appointments/${appointment.id}/${confirming}`, { method: "PATCH" });
     setConfirming(null);
+    onChanged();
+  }
+
+  async function answerMove() {
+    const accept = confirming === "move";
+    await api(`/appointments/${appointment.id}/reschedule/${accept ? "accept" : "decline"}`, {
+      method: "PATCH",
+      body: accept ? undefined : { note: declineNote.trim() || null },
+    });
+    setConfirming(null);
+    setDeclineNote("");
     onChanged();
   }
 
@@ -100,6 +115,15 @@ function AppointmentRow({
               <span className="font-medium">Reason for visit:</span> {appointment.notes}
             </p>
           )}
+          {requested && (
+            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="move-request">
+              <p>
+                The patient asked to move this to <span className="font-semibold">{requestedWhen}</span>. It stays at the current
+                time until you answer.
+              </p>
+              {appointment.reschedule_note && <p className="mt-1 break-words">Their note: {appointment.reschedule_note}</p>}
+            </div>
+          )}
           <ClosingNote appointment={appointment} viewer="doctor" />
           <CancellationInfo appointment={appointment} viewer="doctor" />
           {appointment.history_access?.reason === "pending" && (
@@ -122,6 +146,14 @@ function AppointmentRow({
             </ButtonLink>
           )}
           {status === "pending" && <Button onClick={() => setConfirming("accept")}>Accept</Button>}
+          {requested && (
+            <>
+              <Button onClick={() => setConfirming("move")}>Accept new time</Button>
+              <Button variant="secondary" onClick={() => setConfirming("decline-move")}>
+                Decline new time
+              </Button>
+            </>
+          )}
           {status === "confirmed" && (
             <>
               {appointment.follow_up?.consultation_type !== "clinic" && (
@@ -179,6 +211,46 @@ function AppointmentRow({
             It moves to completed and the patient is notified. Its video call closes, so if you&apos;re still in it, the call
             ends. This can&apos;t be undone.
           </p>
+        </ConfirmDialog>
+      )}
+      {confirming === "move" && (
+        <ConfirmDialog
+          title="Move this appointment?"
+          confirmLabel="Move appointment"
+          busyLabel="Moving…"
+          onConfirm={answerMove}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            <span className="font-semibold text-ink">{patientName}</span>: from{" "}
+            <span className="font-semibold text-ink">{when}</span> to{" "}
+            <span className="font-semibold text-ink">{requestedWhen}</span>.
+          </p>
+          <p>The patient is told, and {when} becomes free for other patients to book.</p>
+        </ConfirmDialog>
+      )}
+      {confirming === "decline-move" && (
+        <ConfirmDialog
+          title="Decline the new time?"
+          confirmLabel="Decline new time"
+          busyLabel="Declining…"
+          cancelLabel="Go back"
+          onConfirm={answerMove}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            The appointment with <span className="font-semibold text-ink">{patientName}</span> stays on{" "}
+            <span className="font-semibold text-ink">{when}</span>, and {requestedWhen} is released. The patient is told.
+          </p>
+          <Field label="Note for the patient" htmlFor={`decline-note-${appointment.id}`} hint="Optional">
+            <Textarea
+              id={`decline-note-${appointment.id}`}
+              rows={2}
+              maxLength={500}
+              value={declineNote}
+              onChange={(e) => setDeclineNote(e.target.value)}
+            />
+          </Field>
         </ConfirmDialog>
       )}
       {confirming === "reopen" && (

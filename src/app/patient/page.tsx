@@ -11,12 +11,13 @@ import { FollowUpActions, FollowUpStatusBadge, FollowUpSummary, FollowUpsCard } 
 import { Stars } from "@/components/rating";
 import { ReviewDialog, reviewWindowOpen } from "@/components/review-dialog";
 import { RequireRole } from "@/components/require-role";
+import { RescheduleDialog } from "@/components/reschedule-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, Button, ButtonLink, Card, Container, EmptyState, PageHeader, PageLoading } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { formatDate, formatTime } from "@/lib/format";
+import { formatDate, formatTime, hasStarted } from "@/lib/format";
 import { timeAgo } from "@/lib/notifications";
 import { TYPE_LABELS } from "@/lib/follow-ups";
 import type { DoctorPublic, FollowUp, PatientAppointment } from "@/lib/types";
@@ -96,16 +97,26 @@ function AppointmentItem({
 }) {
   const { displayName } = useAuth();
   const now = useNow();
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<"cancel" | "withdraw" | null>(null);
+  const [moving, setMoving] = useState(false);
   const [reviewing, setReviewing] = useState(openReview);
   const reviewable = appointment.status === "completed" && (appointment.review !== null || reviewWindowOpen(appointment, now));
   const canCancel = appointment.status === "pending" || appointment.status === "confirmed";
+  const requested = appointment.requested_slot;
+  const canMove = canCancel && !requested && now !== null && !hasStarted(appointment.slot, now);
   const doctorName = doctor?.full_name ?? "your doctor";
   const when = `${formatDate(appointment.slot.date)} at ${formatTime(appointment.slot.start_time)}`;
+  const requestedWhen = requested ? `${formatDate(requested.date)} at ${formatTime(requested.start_time)}` : "";
 
   async function cancel() {
     await api(`/appointments/${appointment.id}/cancel`, { method: "PATCH" });
-    setConfirming(false);
+    setConfirming(null);
+    onChanged();
+  }
+
+  async function withdraw() {
+    await api(`/appointments/${appointment.id}/reschedule`, { method: "DELETE" });
+    setConfirming(null);
     onChanged();
   }
 
@@ -135,6 +146,12 @@ function AppointmentItem({
           )}
           {appointment.notes && <p className="mt-1 break-words text-sm text-slate-600">Your note: {appointment.notes}</p>}
           {appointment.status === "pending" && <p className="mt-1 text-sm text-amber-800">Waiting for the doctor to confirm.</p>}
+          {requested && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="move-requested">
+              You asked to move this to <span className="font-semibold">{requestedWhen}</span>. Waiting for {doctorName} to
+              accept; until then it stays at this time.
+            </p>
+          )}
           <ClosingNote appointment={appointment} viewer="patient" />
           <CancellationInfo appointment={appointment} viewer="patient" />
           <SharingLine appointment={appointment} doctorName={doctor?.full_name ?? "your doctor"} />
@@ -158,8 +175,18 @@ function AppointmentItem({
           {appointment.status === "confirmed" && appointment.follow_up?.consultation_type !== "clinic" && (
             <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
           )}
+          {canMove && (
+            <Button variant="secondary" onClick={() => setMoving(true)}>
+              Change time
+            </Button>
+          )}
+          {requested && (
+            <Button variant="secondary" onClick={() => setConfirming("withdraw")}>
+              Withdraw request
+            </Button>
+          )}
           {canCancel && (
-            <Button variant="danger" onClick={() => setConfirming(true)}>
+            <Button variant="danger" onClick={() => setConfirming("cancel")}>
               Cancel appointment
             </Button>
           )}
@@ -181,7 +208,35 @@ function AppointmentItem({
         />
       )}
 
-      {confirming && (
+      {moving && (
+        <RescheduleDialog
+          appointment={appointment}
+          doctorName={doctorName}
+          onClose={() => setMoving(false)}
+          onDone={() => {
+            setMoving(false);
+            onChanged();
+          }}
+        />
+      )}
+
+      {confirming === "withdraw" && (
+        <ConfirmDialog
+          title="Withdraw your request to move?"
+          confirmLabel="Withdraw request"
+          busyLabel="Withdrawing…"
+          cancelLabel="Keep request"
+          onConfirm={withdraw}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            Your appointment with <span className="font-semibold text-ink">{doctorName}</span> stays on{" "}
+            <span className="font-semibold text-ink">{when}</span>, and {requestedWhen} is released for others to book.
+          </p>
+        </ConfirmDialog>
+      )}
+
+      {confirming === "cancel" && (
         <ConfirmDialog
           title="Cancel this appointment?"
           confirmLabel="Yes, cancel appointment"
@@ -189,13 +244,14 @@ function AppointmentItem({
           cancelLabel="Keep appointment"
           tone="danger"
           onConfirm={cancel}
-          onClose={() => setConfirming(false)}
+          onClose={() => setConfirming(null)}
         >
           <p>
             Your appointment with <span className="font-semibold text-ink">{doctorName}</span> on{" "}
             <span className="font-semibold text-ink">{when}</span> will be cancelled and the doctor will be told.
           </p>
           <p>This can&apos;t be undone — to see them, you&apos;d need to book again (the time may be taken by then).</p>
+          {requested && <p>Your request to move it to {requestedWhen} is withdrawn with it.</p>}
         </ConfirmDialog>
       )}
     </Card>
