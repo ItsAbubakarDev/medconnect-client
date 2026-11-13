@@ -310,7 +310,7 @@ function AssistantPanel() {
         } else if (event === "status") {
           setPending((p) => p && { ...p, status: d.text as string });
         } else if (event === "done" || event === "error") {
-          if (event === "error") setError(d.message as string);
+          if (event === "error") setError(typeof d.message === "string" ? d.message : "Something went wrong. Please try again.");
           const proposalsIn = (d.proposals as AssistantProposal[] | undefined) ?? [];
           setProposals((prev) => ({ ...prev, ...Object.fromEntries(proposalsIn.map((p) => [p.id, p])) }));
         }
