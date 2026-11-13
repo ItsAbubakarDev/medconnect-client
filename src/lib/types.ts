@@ -543,6 +543,8 @@ export interface AssistantStatus {
   available: boolean;
   /** The patient let the assistant read their health record (never the private items). */
   history_access: boolean;
+  /** Agreed to voice mode's notice (speech goes to the browser's speech service). */
+  voice_consent: boolean;
   daily_limit: number;
   used_today: number;
 }
@@ -578,7 +580,8 @@ export type AssistantCard =
       doctor_name: string | null;
       items: { slot_id: number; date: string; start_time: string; end_time: string }[];
     }
-  | { type: "proposal"; proposal_id: number };
+  | { type: "proposal"; proposal_id: number }
+  | { type: "voice_confirm"; proposal_id: number };
 
 export interface AssistantMessage {
   id: number;

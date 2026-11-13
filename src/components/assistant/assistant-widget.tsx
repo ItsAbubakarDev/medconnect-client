@@ -19,9 +19,37 @@ import type {
 import { useIsClient } from "@/lib/use-is-client";
 
 import { DoctorsCard, EmergencyCard, HistoryAccessCard, ProposalCard, TimesCard } from "./assistant-cards";
+import { VoiceSession, voiceSupported } from "./voice-session";
+import type { VoiceLanguage, VoiceState } from "./voice-session";
 
 const MAX_CHARS = 2000;
 const OPEN_KEY = "mc_assistant_conversation"; // the open conversation, kept for this tab
+const VOICE_LANGUAGE_KEY = "mc_voice_language";
+
+const VOICE_LABELS: Record<VoiceState, string> = {
+  off: "",
+  starting: "Starting the microphone…",
+  listening: "Listening…",
+  hearing: "Hearing you…",
+  thinking: "Thinking…",
+  speaking: "Speaking (talk to interrupt)",
+};
+
+function savedVoiceLanguage(): VoiceLanguage {
+  try {
+    return window.localStorage.getItem(VOICE_LANGUAGE_KEY) === "en" ? "en" : "ur";
+  } catch {
+    return "ur";
+  }
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+interface VoiceTurn {
+  language: VoiceLanguage;
+  onText: (text: string) => void;
+  signal: AbortSignal;
+}
 
 const SUGGESTIONS = [
   "Find a cardiologist in Lahore under Rs. 1,500",
@@ -59,6 +87,15 @@ function ChatIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6" aria-hidden="true">
       <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z" strokeLinejoin="round" />
       <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" strokeLinecap="round" strokeWidth="2.5" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -120,7 +157,7 @@ export function AssistantWidget() {
 }
 
 function AssistantPanel() {
-  const { stage } = useCall();
+  const { stage, call } = useCall();
   const [status, setStatus] = useState<AssistantStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"chat" | "list">("chat");
@@ -131,7 +168,19 @@ function AssistantPanel() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<{ kind: "allow" } | { kind: "delete"; id: number; title: string } | null>(null);
+  const [confirming, setConfirming] = useState<
+    { kind: "allow" } | { kind: "voice" } | { kind: "delete"; id: number; title: string } | null
+  >(null);
+  // Voice mode (see voice-session.ts).
+  const [voiceState, setVoiceState] = useState<VoiceState>("off");
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>(savedVoiceLanguage);
+  const [caption, setCaption] = useState("");
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [canTalk] = useState(voiceSupported);
+  const voiceRef = useRef<VoiceSession | null>(null);
+  const voiceLanguageRef = useRef(voiceLanguage);
+  const conversationRef = useRef<number | null>(null);
+  const sendRef = useRef<(text: string, voice?: VoiceTurn) => Promise<void>>(async () => {});
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -151,6 +200,7 @@ function AssistantPanel() {
     setError(null);
     try {
       const c = await api<AssistantConversation>(`/assistant/conversations/${id}`);
+      conversationRef.current = c.id;
       setConversationId(c.id);
       setMessages(c.messages);
       setProposals(Object.fromEntries(c.proposals.map((p) => [p.id, p])));
@@ -158,6 +208,7 @@ function AssistantPanel() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         remember(null);
+        conversationRef.current = null;
         setConversationId(null);
         setMessages([]);
       } else setError(messageOf(e));
@@ -189,31 +240,72 @@ function AssistantPanel() {
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && !confirming && setOpen(false);
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape" || confirming) return;
+      voiceRef.current?.stop();
+      setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, confirming]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      voiceRef.current?.stop();
+    },
+    [],
+  );
 
-  async function send(text: string) {
+  // Voice mode never runs alongside a video call (they'd share the microphone), nor in a
+  // tab the patient has left.
+  useEffect(() => {
+    if (call) voiceRef.current?.stop("Voice mode stopped because a video call started.");
+  }, [call]);
+  useEffect(() => {
+    if (voiceState === "off") return;
+    const onHide = () => document.hidden && voiceRef.current?.stop("Voice mode stopped because you left the page.");
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [voiceState]);
+
+  /** Send a message. In voice mode a new turn replaces one still being answered (the patient
+   * spoke over it), and the reply's text is also handed to the voice as it arrives. */
+  async function send(text: string, voice?: VoiceTurn) {
     const message = text.trim();
-    if (!message || pending) return;
+    if (!message || (!voice && abortRef.current)) return;
     setError(null);
-    setDraft("");
+    if (!voice) setDraft("");
     setPending({ text: message, reply: "", status: null });
     const controller = new AbortController();
+    voice?.signal.addEventListener("abort", () => controller.abort());
+    abortRef.current?.abort();
     abortRef.current = controller;
-    let id = conversationId;
+    let id = conversationRef.current;
+    const body = { text: message, conversation_id: id, ...(voice ? { voice: true, language: voice.language } : {}) };
     try {
-      const res = await apiStream("/assistant/messages", { text: message, conversation_id: id }, controller.signal);
+      let res: Response | null = null;
+      for (let attempt = 0; res === null; attempt += 1) {
+        try {
+          res = await apiStream("/assistant/messages", body, controller.signal);
+        } catch (e) {
+          // An interrupted reply may still be closing on the server for a moment.
+          if (voice && e instanceof ApiError && e.status === 409 && attempt < 10 && !controller.signal.aborted) {
+            await wait(400);
+            continue;
+          }
+          throw e;
+        }
+      }
       for await (const { event, data } of readEvents(res)) {
         const d = data as Record<string, unknown>;
         if (event === "conversation") {
           id = d.id as number;
+          conversationRef.current = id;
           setConversationId(id);
           remember(id);
         } else if (event === "delta") {
+          voice?.onText(d.text as string);
           setPending((p) => p && { ...p, reply: p.reply + (d.text as string), status: null });
         } else if (event === "status") {
           setPending((p) => p && { ...p, status: d.text as string });
@@ -228,17 +320,67 @@ function AssistantPanel() {
     } catch (e) {
       if (!controller.signal.aborted) {
         setError(messageOf(e));
-        setDraft(message); // not sent (e.g. the daily limit): keep it to try again
+        if (!voice) setDraft(message); // not sent (e.g. the daily limit): keep it to try again
         if (id !== null) await loadConversation(id);
+        if (voice && e instanceof ApiError && (e.status === 429 || e.status === 403)) voiceRef.current?.stop(e.message);
       }
     } finally {
-      setPending(null);
-      if (abortRef.current === controller) abortRef.current = null;
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setPending(null);
+      }
       void api<AssistantStatus>("/assistant")
         .then(setStatus)
         .catch(() => {});
-      inputRef.current?.focus();
+      if (!voice) inputRef.current?.focus();
     }
+  }
+  useEffect(() => {
+    sendRef.current = send;
+  });
+
+  async function startVoice() {
+    if (voiceRef.current) return;
+    setError(null);
+    setVoiceNotice(null);
+    const session = new VoiceSession(voiceLanguage, {
+      onState: setVoiceState,
+      onCaption: setCaption,
+      onNotice: setVoiceNotice,
+      onStopped: (message) => {
+        if (voiceRef.current === session) voiceRef.current = null;
+        setVoiceNotice(message);
+      },
+      sendTurn: (text, onText, signal) => sendRef.current(text, { language: voiceLanguageRef.current, onText, signal }),
+    });
+    voiceRef.current = session;
+    await session.start();
+  }
+
+  function talk() {
+    if (status?.voice_consent) void startVoice();
+    else setConfirming({ kind: "voice" });
+  }
+
+  function endVoice() {
+    voiceRef.current?.stop();
+    setVoiceNotice(null);
+  }
+
+  function chooseLanguage(language: VoiceLanguage) {
+    setVoiceLanguage(language);
+    voiceLanguageRef.current = language;
+    voiceRef.current?.setLanguage(language);
+    try {
+      window.localStorage.setItem(VOICE_LANGUAGE_KEY, language);
+    } catch {
+      // not remembered
+    }
+  }
+
+  function closePanel() {
+    voiceRef.current?.stop();
+    setOpen(false);
   }
 
   function submit(e: FormEvent) {
@@ -255,6 +397,7 @@ function AssistantPanel() {
 
   function newChat() {
     if (pending) return;
+    conversationRef.current = null;
     setConversationId(null);
     setMessages([]);
     setProposals({});
@@ -268,6 +411,10 @@ function AssistantPanel() {
     setStatus(await api<AssistantStatus>("/assistant/settings", { method: "PUT", body: { history_access: allowed } }));
   }
 
+  async function setVoiceConsent(agreed: boolean) {
+    setStatus(await api<AssistantStatus>("/assistant/settings", { method: "PUT", body: { voice_consent: agreed } }));
+  }
+
   async function deleteConversation(id: number) {
     await api(`/assistant/conversations/${id}`, { method: "DELETE" });
     setList((l) => l?.filter((c) => c.id !== id) ?? null);
@@ -276,7 +423,7 @@ function AssistantPanel() {
   }
 
   // Following a link from the chat on a phone (where the panel covers the page) closes it.
-  const closeOnSmallScreens = () => window.matchMedia("(max-width: 639px)").matches && setOpen(false);
+  const closeOnSmallScreens = () => window.matchMedia("(max-width: 639px)").matches && closePanel();
 
   if (!status?.available || stage !== null) return null;
 
@@ -316,7 +463,7 @@ function AssistantPanel() {
             </Button>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={closePanel}
               aria-label="Close the assistant"
               className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-ink"
             >
@@ -349,6 +496,28 @@ function AssistantPanel() {
                   </span>
                 </label>
               </div>
+              {status.voice_consent && (
+                <div className="mb-4 rounded-lg border border-slate-200 p-3 text-sm">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4"
+                      checked
+                      onChange={() => {
+                        voiceRef.current?.stop();
+                        void setVoiceConsent(false).catch((x) => setError(messageOf(x)));
+                      }}
+                    />
+                    <span>
+                      <span className="font-semibold text-ink">Voice mode allowed</span>
+                      <span className="block text-xs text-slate-600">
+                        Your speech is turned into text by your browser&apos;s speech service (Google, in Chrome). Untick to
+                        withdraw; you&apos;ll be asked again next time.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
               <h3 className="text-sm font-semibold text-ink">Your conversations</h3>
               {list === null && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
               {list?.length === 0 && <p className="mt-2 text-sm text-slate-500">No conversations yet.</p>}
@@ -402,14 +571,20 @@ function AssistantPanel() {
               {messages.map((m) =>
                 m.role === "user" ? (
                   <div key={m.id} className="flex justify-end">
-                    <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm text-white">
+                    <p
+                      dir="auto"
+                      className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm text-white"
+                    >
                       {m.content}
                     </p>
                   </div>
                 ) : (
                   <div key={m.id} className="max-w-[95%]" data-testid="assistant-reply">
                     {m.content && (
-                      <p className="whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-ink">
+                      <p
+                        dir="auto"
+                        className="whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-ink"
+                      >
                         {m.content}
                       </p>
                     )}
@@ -429,13 +604,19 @@ function AssistantPanel() {
               {pending && (
                 <>
                   <div className="flex justify-end">
-                    <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm text-white">
+                    <p
+                      dir="auto"
+                      className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm text-white"
+                    >
                       {pending.text}
                     </p>
                   </div>
                   <div className="max-w-[95%]">
                     {pending.reply && (
-                      <p className="whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-ink">
+                      <p
+                        dir="auto"
+                        className="whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-ink"
+                      >
                         {pending.reply}
                       </p>
                     )}
@@ -453,7 +634,46 @@ function AssistantPanel() {
             </div>
           )}
 
-          {view === "chat" && (
+          {view === "chat" && voiceState !== "off" && (
+            <div className="border-t border-slate-200 p-3" data-testid="voice-bar">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className={`h-3 w-3 shrink-0 rounded-full ${voiceState === "hearing" ? "bg-red-600" : voiceState === "speaking" ? "bg-brand-600" : voiceState === "listening" ? "bg-emerald-500" : "bg-slate-400"}`}
+                />
+                <p role="status" className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+                  {VOICE_LABELS[voiceState]}
+                </p>
+                <div className="inline-flex rounded-lg border border-slate-300 p-0.5" role="group" aria-label="Voice language">
+                  {(["ur", "en"] as const).map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      aria-pressed={voiceLanguage === l}
+                      onClick={() => chooseLanguage(l)}
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ${voiceLanguage === l ? "bg-brand-700 text-white" : "text-ink hover:bg-slate-50"}`}
+                    >
+                      {l === "ur" ? "اردو" : "English"}
+                    </button>
+                  ))}
+                </div>
+                <Button size="sm" variant="danger" onClick={endVoice}>
+                  End
+                </Button>
+              </div>
+              {caption && (
+                <p dir="auto" className="mt-2 text-sm text-slate-700" data-testid="voice-caption">
+                  {caption}
+                </p>
+              )}
+              {voiceNotice && <p className="mt-2 text-xs text-amber-800">{voiceNotice}</p>}
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                Speak naturally; pause when you&apos;re done. You can interrupt. Say &quot;yes&quot; (ہاں) to confirm what it
+                asks. Your speech is turned into text by your browser&apos;s speech service (Google, in Chrome).
+              </p>
+            </div>
+          )}
+          {view === "chat" && voiceState === "off" && (
             <form onSubmit={submit} className="border-t border-slate-200 p-3">
               <div className="flex items-end gap-2">
                 <label htmlFor="assistant-input" className="sr-only">
@@ -474,7 +694,19 @@ function AssistantPanel() {
                 <Button type="submit" disabled={busy || !draft.trim() || left === 0}>
                   Send
                 </Button>
+                {canTalk && (
+                  <Button
+                    variant="secondary"
+                    onClick={talk}
+                    disabled={busy || left === 0}
+                    aria-label="Start a voice conversation"
+                    title="Talk to the assistant"
+                  >
+                    <MicIcon />
+                  </Button>
+                )}
               </div>
+              {voiceNotice && <p className="mt-2 text-xs text-amber-800">{voiceNotice}</p>}
               <p className="mt-2 text-[11px] leading-snug text-slate-500">
                 AI assistant: it can make mistakes and doesn&apos;t give medical advice. In an emergency call 1122.
                 {left <= 10 && ` ${left} message${left === 1 ? "" : "s"} left today.`}
@@ -484,6 +716,31 @@ function AssistantPanel() {
         </section>
       )}
 
+      {confirming?.kind === "voice" && (
+        <ConfirmDialog
+          title="Talk to the assistant?"
+          confirmLabel="Agree and start"
+          busyLabel="Starting…"
+          cancelLabel="Not now"
+          onConfirm={async () => {
+            await setVoiceConsent(true);
+            setConfirming(null);
+            void startVoice();
+          }}
+          onClose={() => setConfirming(null)}
+        >
+          <p>
+            In voice mode the microphone stays on until you press End. What you say is turned into text by your browser&apos;s
+            speech service — <span className="font-semibold text-ink">in Chrome, that&apos;s Google</span>— so your words,
+            including any health details you mention, are sent to it for that. The text is then handled like a typed message.
+          </p>
+          <p>
+            Replies are read aloud, and you can talk over them. When the assistant prepares a booking, cancellation or new time,
+            it asks you to confirm: a clear &quot;yes&quot; (ہاں) carries it out, &quot;no&quot; (نہیں) doesn&apos;t.
+          </p>
+          <p>You can withdraw this agreement any time under Chats.</p>
+        </ConfirmDialog>
+      )}
       {confirming?.kind === "allow" && (
         <ConfirmDialog
           title="Let the assistant read your health record?"

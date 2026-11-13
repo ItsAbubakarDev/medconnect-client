@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-vad-assets.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-vad-assets.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -11,6 +13,7 @@
   "dependencies": {
     "@livekit/components-react": "2.9.24",
     "@livekit/components-styles": "1.2.0",
+    "@ricky0123/vad-web": "0.0.31",
     "livekit-client": "2.22.4",
     "next": "16.4.0",
     "react": "19.3.0",
