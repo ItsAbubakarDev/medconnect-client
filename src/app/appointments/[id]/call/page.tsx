@@ -40,10 +40,17 @@ function Call() {
           <div>
             <h1 className="text-lg font-semibold text-ink">Video consultation</h1>
             <p className="text-sm text-slate-600">
-              You can use the menu to open other pages — the call carries on in a small window.
+              {session?.role === "doctor"
+                ? "Write the prescription while you talk — the call carries on in a small window."
+                : "You can use the menu to open other pages — the call carries on in a small window."}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {session?.role === "doctor" && (
+              <ButtonLink href={`/doctor/appointments/${id}?tab=prescription`} size="sm">
+                Write prescription
+              </ButtonLink>
+            )}
             <ButtonLink href={home} variant="secondary" size="sm">
               Back to dashboard
             </ButtonLink>

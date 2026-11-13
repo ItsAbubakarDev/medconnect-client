@@ -33,6 +33,7 @@ const VOICE_LABELS: Record<VoiceState, string> = {
   hearing: "Hearing you…",
   thinking: "Thinking…",
   speaking: "Speaking (talk to interrupt)",
+  reconnecting: "Connection lost, reconnecting…",
 };
 
 function savedVoiceLanguage(): VoiceLanguage {
@@ -47,8 +48,15 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface VoiceTurn {
   language: VoiceLanguage;
+  /** The proposal whose spoken yes/no question was heard to the end, if any. */
+  confirming: number | null;
   onText: (text: string) => void;
   signal: AbortSignal;
+}
+
+/** What a voice turn needs back: the proposal its reply ends by asking yes/no about. */
+interface SendResult {
+  voiceConfirm: number | null;
 }
 
 const SUGGESTIONS = [
@@ -180,7 +188,7 @@ function AssistantPanel() {
   const voiceRef = useRef<VoiceSession | null>(null);
   const voiceLanguageRef = useRef(voiceLanguage);
   const conversationRef = useRef<number | null>(null);
-  const sendRef = useRef<(text: string, voice?: VoiceTurn) => Promise<void>>(async () => {});
+  const sendRef = useRef<(text: string, voice?: VoiceTurn) => Promise<SendResult>>(async () => ({ voiceConfirm: null }));
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -242,7 +250,7 @@ function AssistantPanel() {
     if (!open) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape" || confirming) return;
-      voiceRef.current?.stop();
+      voiceRef.current?.stop(null, "panel closed (Escape)");
       setOpen(false);
     };
     window.addEventListener("keydown", onKey);
@@ -252,7 +260,7 @@ function AssistantPanel() {
   useEffect(
     () => () => {
       abortRef.current?.abort();
-      voiceRef.current?.stop();
+      voiceRef.current?.stop(null, "page closed");
     },
     [],
   );
@@ -260,20 +268,21 @@ function AssistantPanel() {
   // Voice mode never runs alongside a video call (they'd share the microphone), nor in a
   // tab the patient has left.
   useEffect(() => {
-    if (call) voiceRef.current?.stop("Voice mode stopped because a video call started.");
+    if (call) voiceRef.current?.stop("Voice mode stopped because a video call started.", "video call started");
   }, [call]);
   useEffect(() => {
     if (voiceState === "off") return;
-    const onHide = () => document.hidden && voiceRef.current?.stop("Voice mode stopped because you left the page.");
+    const onHide = () => document.hidden && voiceRef.current?.stop("Voice mode stopped because you left the page.", "left the page");
     document.addEventListener("visibilitychange", onHide);
     return () => document.removeEventListener("visibilitychange", onHide);
   }, [voiceState]);
 
   /** Send a message. In voice mode a new turn replaces one still being answered (the patient
    * spoke over it), and the reply's text is also handed to the voice as it arrives. */
-  async function send(text: string, voice?: VoiceTurn) {
+  async function send(text: string, voice?: VoiceTurn): Promise<SendResult> {
+    const result: SendResult = { voiceConfirm: null };
     const message = text.trim();
-    if (!message || (!voice && abortRef.current)) return;
+    if (!message || (!voice && abortRef.current)) return result;
     setError(null);
     if (!voice) setDraft("");
     setPending({ text: message, reply: "", status: null });
@@ -282,7 +291,11 @@ function AssistantPanel() {
     abortRef.current?.abort();
     abortRef.current = controller;
     let id = conversationRef.current;
-    const body = { text: message, conversation_id: id, ...(voice ? { voice: true, language: voice.language } : {}) };
+    const body = {
+      text: message,
+      conversation_id: id,
+      ...(voice ? { voice: true, language: voice.language, confirming_proposal_id: voice.confirming } : {}),
+    };
     try {
       let res: Response | null = null;
       for (let attempt = 0; res === null; attempt += 1) {
@@ -311,6 +324,7 @@ function AssistantPanel() {
           setPending((p) => p && { ...p, status: d.text as string });
         } else if (event === "done" || event === "error") {
           if (event === "error") setError(typeof d.message === "string" ? d.message : "Something went wrong. Please try again.");
+          result.voiceConfirm = typeof d.voice_confirm === "number" ? d.voice_confirm : null;
           const proposalsIn = (d.proposals as AssistantProposal[] | undefined) ?? [];
           setProposals((prev) => ({ ...prev, ...Object.fromEntries(proposalsIn.map((p) => [p.id, p])) }));
         }
@@ -322,7 +336,7 @@ function AssistantPanel() {
         setError(messageOf(e));
         if (!voice) setDraft(message); // not sent (e.g. the daily limit): keep it to try again
         if (id !== null) await loadConversation(id);
-        if (voice && e instanceof ApiError && (e.status === 429 || e.status === 403)) voiceRef.current?.stop(e.message);
+        if (voice && e instanceof ApiError && (e.status === 429 || e.status === 403)) voiceRef.current?.stop(e.message, `server refused (${e.status})`);
       }
     } finally {
       if (abortRef.current === controller) {
@@ -334,6 +348,7 @@ function AssistantPanel() {
         .catch(() => {});
       if (!voice) inputRef.current?.focus();
     }
+    return result;
   }
   useEffect(() => {
     sendRef.current = send;
@@ -351,7 +366,8 @@ function AssistantPanel() {
         if (voiceRef.current === session) voiceRef.current = null;
         setVoiceNotice(message);
       },
-      sendTurn: (text, onText, signal) => sendRef.current(text, { language: voiceLanguageRef.current, onText, signal }),
+      sendTurn: ({ text, confirming, onText, signal }) =>
+        sendRef.current(text, { language: voiceLanguageRef.current, confirming, onText, signal }),
     });
     voiceRef.current = session;
     await session.start();
@@ -363,7 +379,7 @@ function AssistantPanel() {
   }
 
   function endVoice() {
-    voiceRef.current?.stop();
+    voiceRef.current?.stop(null, "End pressed");
     setVoiceNotice(null);
   }
 
@@ -379,7 +395,7 @@ function AssistantPanel() {
   }
 
   function closePanel() {
-    voiceRef.current?.stop();
+    voiceRef.current?.stop(null, "panel closed");
     setOpen(false);
   }
 
@@ -504,14 +520,14 @@ function AssistantPanel() {
                       className="mt-1 h-4 w-4"
                       checked
                       onChange={() => {
-                        voiceRef.current?.stop();
+                        voiceRef.current?.stop(null, "voice mode permission withdrawn");
                         void setVoiceConsent(false).catch((x) => setError(messageOf(x)));
                       }}
                     />
                     <span>
                       <span className="font-semibold text-ink">Voice mode allowed</span>
                       <span className="block text-xs text-slate-600">
-                        Your speech is turned into text by your browser&apos;s speech service (Google, in Chrome). Untick to
+                        Your speech is turned into text by your browser&apos;s speech service (Google in Chrome, Microsoft in Edge). Untick to
                         withdraw; you&apos;ll be asked again next time.
                       </span>
                     </span>
@@ -657,6 +673,11 @@ function AssistantPanel() {
                     </button>
                   ))}
                 </div>
+                {(voiceState === "speaking" || voiceState === "thinking") && (
+                  <Button size="sm" variant="secondary" onClick={() => voiceRef.current?.stopSpeaking()}>
+                    Stop speaking
+                  </Button>
+                )}
                 <Button size="sm" variant="danger" onClick={endVoice}>
                   End
                 </Button>
@@ -668,8 +689,9 @@ function AssistantPanel() {
               )}
               {voiceNotice && <p className="mt-2 text-xs text-amber-800">{voiceNotice}</p>}
               <p className="mt-2 text-[11px] leading-snug text-slate-500">
-                Speak naturally; pause when you&apos;re done. You can interrupt. Say &quot;yes&quot; (ہاں) to confirm what it
-                asks. Your speech is turned into text by your browser&apos;s speech service (Google, in Chrome).
+                Speak naturally; pause when you&apos;re done. To interrupt, just talk (or say &quot;ruko&quot;), or press Stop
+                speaking. Say &quot;yes&quot; (ہاں) to confirm what it asks. Your speech is turned into text by your
+                browser&apos;s speech service (Google in Chrome, Microsoft in Edge).
               </p>
             </div>
           )}
@@ -731,7 +753,7 @@ function AssistantPanel() {
         >
           <p>
             In voice mode the microphone stays on until you press End. What you say is turned into text by your browser&apos;s
-            speech service — <span className="font-semibold text-ink">in Chrome, that&apos;s Google</span>— so your words,
+            speech service — <span className="font-semibold text-ink">in Chrome, that&apos;s Google; in Edge, Microsoft</span> — so your words,
             including any health details you mention, are sent to it for that. The text is then handled like a typed message.
           </p>
           <p>

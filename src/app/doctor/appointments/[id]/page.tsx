@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { ConsultationForm } from "@/components/health/consultation-form";
+import { PrescriptionEditor } from "@/components/prescription/prescription-editor";
 import { FileViewer, callFileUrls, doctorFileUrls, ownPrescriptionUrls } from "@/components/health/file-viewer";
 import type { FileUrls } from "@/components/health/file-viewer";
 import { ConsultationCard, DocumentGroups, QuickGlance, Timeline } from "@/components/health/history-views";
@@ -32,8 +33,10 @@ function age(dob: string | null, nowMs: number | null): string | null {
 
 function PatientView({ appointmentId }: { appointmentId: number }) {
   const now = useNow();
-  // ?tab=consultation: opened from a follow-up appointment's "your record from then" link.
-  const [tab, setTab] = useState<Tab>(useSearchParams().get("tab") === "consultation" ? "consultation" : "timeline");
+  // ?tab=prescription (from the video call), or ?tab=consultation (a follow-up's "your record
+  // from then" link): open on the prescription.
+  const requestedTab = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(requestedTab === "consultation" || requestedTab === "prescription" ? "consultation" : "timeline");
   const [history, setHistory] = useState<{ data?: DoctorPatientHistory; closed?: string; error?: string } | null>(null);
   const [own, setOwn] = useState<OwnConsultation | null>(null);
   const [past, setPast] = useState<OwnConsultation[] | null>(null);
@@ -187,6 +190,13 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
       {history.closed && (
         <div className="mt-6 space-y-6">
           <Alert tone="info">{history.closed}</Alert>
+          {/* The prescription doesn't depend on the patient sharing their history. */}
+          <section aria-labelledby="rx-title">
+            <h2 id="rx-title" className="mb-3 text-lg font-semibold text-ink">
+              Prescription
+            </h2>
+            <PrescriptionEditor appointmentId={appointmentId} legacyFallback={null} />
+          </section>
           {past && past.length > 0 && (
             <section>
               <h2 className="mb-3 text-lg font-semibold text-ink">Your consultation records with {patientName}</h2>
@@ -229,9 +239,7 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
                   ? "History timeline"
                   : t === "documents"
                     ? `Documents (${data.documents.length})`
-                    : own?.consultation
-                      ? "Consultation record"
-                      : "Write consultation"}
+                    : "Prescription"}
               </button>
             ))}
           </div>
@@ -244,21 +252,28 @@ function PatientView({ appointmentId }: { appointmentId: number }) {
               empty={<EmptyState title="The patient hasn't shared any documents" />}
             />
           )}
-          {tab === "consultation" &&
-            (canWrite ? (
-              <ConsultationForm
-                appointmentId={appointmentId}
-                visitDate={appointment?.date ?? clinicToday()}
-                existing={own?.consultation ?? null}
-                onSaved={saved}
-              />
-            ) : own?.consultation ? (
-              <ConsultationCard consultation={own.consultation} onOpenDocument={openDoc} />
-            ) : (
-              <Card>
-                <p className="text-slate-600">You can write the consultation record once the appointment has started.</p>
-              </Card>
-            ))}
+          {tab === "consultation" && (
+            <PrescriptionEditor
+              appointmentId={appointmentId}
+              legacyFallback={
+                // A record written before prescriptions existed keeps its own form.
+                canWrite ? (
+                  <ConsultationForm
+                    appointmentId={appointmentId}
+                    visitDate={appointment?.date ?? clinicToday()}
+                    existing={own?.consultation ?? null}
+                    onSaved={saved}
+                  />
+                ) : own?.consultation ? (
+                  <ConsultationCard consultation={own.consultation} onOpenDocument={openDoc} />
+                ) : (
+                  <Card>
+                    <p className="text-slate-600">You can write the consultation record once the appointment has started.</p>
+                  </Card>
+                )
+              }
+            />
+          )}
         </div>
       )}
 

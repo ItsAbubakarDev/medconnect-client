@@ -38,6 +38,7 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
     city: profile.city ?? "",
     area: profile.area ?? "",
     clinic_address: profile.clinic_address ?? "",
+    pmdc_number: profile.pmdc_number ?? "",
   });
   const [online, setOnline] = useState(profile.offers_online);
   const [saving, setSaving] = useState(false);
@@ -68,6 +69,7 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
           area: orNull(form.area),
           clinic_address: orNull(form.clinic_address),
           offers_online: online,
+          pmdc_number: orNull(form.pmdc_number),
         },
       });
       setComplete(Boolean(saved.full_name && saved.specialty));
@@ -108,6 +110,20 @@ function ProfileForm({ profile, welcome }: { profile: DoctorProfile; welcome: bo
               placeholder="MBBS, FCPS"
               value={form.qualifications}
               onChange={set("qualifications")}
+            />
+          </Field>
+          <Field
+            label="PMDC registration number"
+            htmlFor="pmdc_number"
+            hint="Printed on your prescriptions. Needed before you can issue one."
+          >
+            <Input
+              id="pmdc_number"
+              maxLength={30}
+              pattern="[A-Za-z0-9/\- ]*"
+              placeholder="e.g. 12345-P"
+              value={form.pmdc_number}
+              onChange={set("pmdc_number")}
             />
           </Field>
           <Field label="Experience (years)" htmlFor="experience_years">

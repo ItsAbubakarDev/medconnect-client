@@ -73,6 +73,7 @@ export interface DoctorProfile {
   area: string | null;
   clinic_address: string | null;
   offers_online: boolean;
+  pmdc_number: string | null; // printed on prescriptions; needed to issue one
 }
 
 export interface DoctorPublic {
@@ -208,6 +209,9 @@ export type NotificationType =
   | "call_joined"
   | "history_updated"
   | "consultation_added"
+  | "prescription_issued"
+  | "prescription_updated"
+  | "prescription_cancelled"
   | "review_received"
   | "review_replied"
   | "follow_up_recommended"
@@ -612,4 +616,188 @@ export interface AssistantConversation {
   title: string;
   messages: AssistantMessage[];
   proposals: AssistantProposal[];
+}
+
+// ---- prescriptions
+
+export type RxStatus = "draft" | "issued" | "replaced" | "cancelled";
+export type TestCategory = "pathology" | "radiology" | "clinical";
+export type DurationUnit = "days" | "weeks" | "months" | "continue";
+
+export interface RxDiagnosis {
+  name: string;
+  code?: string | null;
+}
+
+export interface RxTest {
+  name: string;
+  category: TestCategory;
+  notes?: string | null;
+}
+
+export interface RxMedicine {
+  name: string;
+  generic?: string | null;
+  strength?: string | null;
+  form?: string | null;
+  dose?: string | null; // "1+0+1", "BD", "SOS"… or the doctor's own
+  unit?: string | null;
+  timing?: string | null; // before_meal, after_meal… or the doctor's own
+  duration_value?: number | null;
+  duration_unit?: DurationUnit | null;
+  instructions?: string | null;
+}
+
+export interface RxVitals {
+  bp?: string | null;
+  pulse?: number | null;
+  temperature_f?: string | null; // Decimal as a string
+  spo2?: number | null;
+  weight_kg?: string | null;
+  height_cm?: string | null;
+}
+
+export type FollowUpFlexibilityValue = "exact" | "plus_minus_2_days" | "plus_minus_1_week" | "within_2_weeks_after";
+
+export interface RxFollowUp {
+  target_date: string;
+  flexibility: FollowUpFlexibilityValue;
+  consultation_type: "online" | "clinic";
+  reason?: string | null;
+  fee_type: "standard" | "free" | "reduced";
+  fee_amount?: string | null;
+}
+
+export interface RxContent {
+  complaint: string | null;
+  diagnoses: RxDiagnosis[];
+  vitals: RxVitals;
+  tests: RxTest[];
+  medicines: RxMedicine[];
+  advice: string | null;
+  follow_up: RxFollowUp | null;
+}
+
+export interface Prescription {
+  id: number;
+  number: string;
+  appointment_id: number;
+  doctor_id: number;
+  patient_id: number;
+  status: RxStatus;
+  version: number;
+  replaces_id: number | null;
+  replaces_number: string | null;
+  content: RxContent;
+  patient_info: Record<string, unknown> | null;
+  doctor_info: Record<string, unknown> | null;
+  issued_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrescriptionSummary {
+  id: number;
+  number: string;
+  appointment_id: number;
+  status: RxStatus;
+  visit_date: string;
+  doctor_name: string | null;
+  doctor_specialty: string | null;
+  diagnoses: string[];
+  medicine_count: number;
+  test_count: number;
+  is_correction: boolean;
+  issued_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+}
+
+export interface RxPatientHeader {
+  id: number;
+  name: string | null;
+  age_years: number | null;
+  gender: string | null;
+  weight_kg: string | null;
+  height_cm: string | null;
+  blood_group: string | null;
+  allergies: { name: string; severity: string | null; reaction: string | null }[];
+  history_shared: boolean;
+}
+
+export interface PrescriptionWorkspace {
+  appointment: { id: number; status: AppointmentStatus; date: string; start_time: string; end_time: string; reason_for_visit: string | null };
+  patient: RxPatientHeader;
+  doctor: {
+    name: string | null;
+    specialty: string | null;
+    qualifications: string | null;
+    pmdc_number: string | null;
+    clinic_name: string | null;
+    city: string | null;
+    offers_online: boolean;
+  };
+  write_blocked: string | null;
+  issue_blocked: string | null;
+  window_ends_on: string;
+  draft: Prescription | null;
+  issued: Prescription | null;
+  history: PrescriptionSummary[];
+  legacy_consultation: boolean;
+}
+
+export interface RxPresets {
+  profile_key: string;
+  profile_label: string;
+  complaints: string[];
+  diagnoses: RxDiagnosis[];
+  tests: RxTest[];
+  medicines: RxMedicine[];
+  advice: string[];
+  follow_up_days: number[];
+  default_follow_up_days: number;
+  dose_codes: string[];
+  units: string[];
+  timings: { value: string; label: string; urdu: string | null }[];
+  durations: number[];
+}
+
+export interface MedicineOption {
+  name: string;
+  generic: string | null;
+  strength: string | null;
+  form: string | null;
+  manufacturer: string | null;
+  mine: boolean;
+  last_used: RxMedicine | null;
+}
+
+export interface TestOption {
+  name: string;
+  category: TestCategory;
+  mine: boolean;
+}
+
+export interface DiagnosisOption {
+  name: string;
+  code: string | null;
+  mine: boolean;
+}
+
+export interface RxTemplateContent {
+  complaint: string | null;
+  diagnoses: RxDiagnosis[];
+  tests: RxTest[];
+  medicines: RxMedicine[];
+  advice: string | null;
+  follow_up_days: number | null;
+}
+
+export interface RxTemplate {
+  id: number;
+  name: string;
+  content: RxTemplateContent;
+  updated_at: string;
 }

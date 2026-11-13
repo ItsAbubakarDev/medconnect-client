@@ -20,7 +20,7 @@ import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { formatDate, formatTime, hasStarted } from "@/lib/format";
 import { timeAgo } from "@/lib/notifications";
 import { TYPE_LABELS } from "@/lib/follow-ups";
-import type { DoctorPublic, FollowUp, PatientAppointment } from "@/lib/types";
+import type { DoctorPublic, FollowUp, PatientAppointment, PrescriptionSummary } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
 
 const slotKey = (a: PatientAppointment) => `${a.slot.date}T${a.slot.start_time}`;
@@ -83,9 +83,12 @@ function AppointmentItem({
   highlighted,
   openReview,
   recommended,
+  hasPrescription,
   onChanged,
 }: {
   appointment: PatientAppointment;
+  /** The doctor issued a prescription for this visit. */
+  hasPrescription: boolean;
   doctor: DoctorPublic | null | undefined;
   /** The follow-up the doctor recommended at this visit, if any. */
   recommended: FollowUp | undefined;
@@ -174,6 +177,11 @@ function AppointmentItem({
         <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
           {appointment.status === "confirmed" && appointment.follow_up?.consultation_type !== "clinic" && (
             <ButtonLink href={`/appointments/${appointment.id}/call`}>Join video call</ButtonLink>
+          )}
+          {hasPrescription && (
+            <ButtonLink href={`/patient/prescriptions?appointment=${appointment.id}`} variant="secondary">
+              Prescription
+            </ButtonLink>
           )}
           {canMove && (
             <Button variant="secondary" onClick={() => setMoving(true)}>
@@ -297,6 +305,18 @@ function PatientDashboard() {
   }, [version, liveTick]);
   const followUpByVisit = useMemo(() => new Map((followUps ?? []).map((f) => [f.appointment_id, f])), [followUps]);
 
+  // Which visits have a prescription (for each card's "Prescription" button).
+  const [prescribed, setPrescribed] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    api<PrescriptionSummary[]>("/prescriptions/mine")
+      .then((data) => !cancelled && setPrescribed(new Set(data.map((p) => p.appointment_id))))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [version, liveTick]);
+
   const list = appointments?.data;
 
   // The patient's appointment list only carries doctor_id; look each doctor up once.
@@ -415,6 +435,7 @@ function PatientDashboard() {
             highlighted={a.id === focusId}
             openReview={reviewFocus && a.id === focusId}
             recommended={followUpByVisit.get(a.id)}
+            hasPrescription={prescribed.has(a.id)}
             onChanged={() => setVersion((v) => v + 1)}
           />
         ))}
