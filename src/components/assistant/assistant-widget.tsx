@@ -507,7 +507,8 @@ function AssistantPanel() {
                     <span className="font-semibold text-ink">Let the assistant read my health record</span>
                     <span className="block text-xs text-slate-600">
                       To answer questions about your medicines, diagnoses and visits. Items you marked private are never included.
-                      You can switch this off any time.
+                      You can switch this off any time: it applies from your next message. What the assistant already wrote stays in
+                      your saved chats until you delete them.
                     </span>
                   </span>
                 </label>
@@ -781,7 +782,8 @@ function AssistantPanel() {
           </p>
           <p>
             Your questions and the parts of your record needed to answer them are sent to an AI service that doesn&apos;t keep
-            them. You can switch this off any time under Chats.
+            them. Your record is read again for each new message, so switching this off (under Chats) or marking an item private
+            applies from your next message. What the assistant has already written stays part of that chat until you delete it.
           </p>
         </ConfirmDialog>
       )}

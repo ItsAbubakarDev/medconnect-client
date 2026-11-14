@@ -9,6 +9,7 @@ import { AuthCard } from "@/components/auth-card";
 import { Alert, Button, Field, Input, PageLoading } from "@/components/ui";
 import { messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { formatCountdown, useRetryCooldown } from "@/lib/use-retry-cooldown";
 import type { Role } from "@/lib/types";
 
 const roles: { value: Role; title: string; text: string }[] = [
@@ -26,6 +27,7 @@ function RegisterForm() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const cooldown = useRetryCooldown(() => setError(null));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -41,6 +43,7 @@ function RegisterForm() {
       router.replace(role === "doctor" ? "/doctor/profile?welcome=1" : "/patient/profile?welcome=1");
     } catch (err) {
       setError(messageOf(err));
+      cooldown.noteError(err);
       setSubmitting(false);
     }
   }
@@ -105,9 +108,13 @@ function RegisterForm() {
             onChange={(e) => setConfirm(e.target.value)}
           />
         </Field>
-        {error && <Alert tone="error">{error}</Alert>}
-        <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-          {submitting ? "Creating account…" : `Create ${role} account`}
+        {error && <Alert tone={cooldown.secondsLeft ? "warning" : "error"}>{error}</Alert>}
+        <Button type="submit" className="w-full" size="lg" disabled={submitting || cooldown.secondsLeft > 0}>
+          {cooldown.secondsLeft
+            ? `Try again in ${formatCountdown(cooldown.secondsLeft)}`
+            : submitting
+              ? "Creating account…"
+              : `Create ${role} account`}
         </Button>
       </form>
     </AuthCard>

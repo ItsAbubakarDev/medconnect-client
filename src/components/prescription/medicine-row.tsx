@@ -2,7 +2,7 @@
 
 import type { DurationUnit, RxMedicine, RxPresets } from "@/lib/types";
 
-import { TIMING_LABELS, allergyMatches, doseWords, medicineTitle } from "./rx-format";
+import { TIMING_LABELS, allergyMatches, doseWords, medicineTitle, norm } from "./rx-format";
 
 const QUICK_DOSES = ["1+0+1", "1+1+1", "1+0+0", "0+0+1", "SOS"];
 const QUICK_TIMINGS = ["before_meal", "after_meal", "with_meal", "empty_stomach", "bedtime"];
@@ -44,6 +44,7 @@ export function MedicineRow({
 }) {
   const set = (patch: Partial<RxMedicine>) => onChange({ ...m, ...patch });
   const allergic = allergyMatches(m, allergies);
+  const guide = presets.guides?.[norm(`${m.name} ${m.strength ?? ""}`)];
   const otherDoses = presets.dose_codes.filter((d) => !QUICK_DOSES.includes(d));
   const customDose = !!m.dose && !presets.dose_codes.includes(m.dose);
   const customTiming = !!m.timing && !(m.timing in TIMING_LABELS);
@@ -66,6 +67,14 @@ export function MedicineRow({
             </p>
           )}
           {duplicate && <p className="mt-1 text-xs font-semibold text-amber-700">This medicine is already on the prescription.</p>}
+          {guide && (
+            <p className="mt-1.5 rounded-md bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
+              <span className="font-semibold">Dosing guide · only you see this:</span> {guide}
+            </p>
+          )}
+          {!m.dose?.trim() && !m.instructions?.trim() && (
+            <p className="mt-1 text-xs font-semibold text-amber-700">Add the dose (or instructions) — needed before issuing.</p>
+          )}
         </div>
         <button
           type="button"

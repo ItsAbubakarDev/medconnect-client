@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { messageOf } from "@/lib/api";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { Alert, Button } from "./ui";
 
@@ -39,6 +40,8 @@ export function ConfirmDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const safeButton = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useFocusTrap(panel);
   const openedAt = useRef(0);
   // Kept in refs so the focus/Escape setup runs once even if the parent re-renders.
   const onCloseRef = useRef(onClose);
@@ -83,6 +86,8 @@ export function ConfirmDialog({
       }}
     >
       <div
+        ref={panel}
+        tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"

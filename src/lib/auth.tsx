@@ -3,7 +3,7 @@
 import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { api, decodeJwt, tokenStore } from "./api";
+import { api, ApiError, decodeJwt, tokenStore } from "./api";
 import type { DoctorProfile, PatientProfile, Role, TokenPair } from "./types";
 
 export interface Session {
@@ -21,6 +21,8 @@ interface AuthContextValue {
   login(email: string, password: string): Promise<Session>;
   register(email: string, password: string, role: Role): Promise<Session>;
   logout(): Promise<void>;
+  /** Ends every session of this account (every device, this one included). */
+  logoutAll(): Promise<void>;
   /** Re-read the profile after it was edited (keeps the navbar name current). */
   reloadProfile(): void;
 }
@@ -96,6 +98,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const logoutAll = useCallback(async () => {
+    try {
+      await api("/auth/logout-all", { method: "POST" });
+    } catch (e) {
+      // 401: this session had already been ended (e.g. from another device) — same outcome.
+      if (!(e instanceof ApiError && e.status === 401)) throw e;
+    }
+    tokenStore.clear();
+    setAccess(null);
+  }, []);
+
   const reloadProfile = useCallback(() => setProfileVersion((v) => v + 1), []);
 
   const value = useMemo<AuthContextValue>(
@@ -107,9 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       logout,
+      logoutAll,
       reloadProfile,
     }),
-    [status, session, current, login, register, logout, reloadProfile],
+    [status, session, current, login, register, logout, logoutAll, reloadProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -34,7 +34,7 @@ const linksByRole = {
 type NavItem = { href: string; label: string };
 
 /** What else logging out ends: a video call in progress, unsaved changes on the page. */
-function LogoutNote() {
+export function LogoutNote() {
   const { call } = useCall();
   const unsaved = useHasUnsavedChanges()();
   return (

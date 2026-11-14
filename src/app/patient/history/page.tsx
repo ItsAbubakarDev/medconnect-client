@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -28,6 +28,7 @@ import { clinicToday } from "@/lib/format";
 import { BLOOD_GROUPS, DOCUMENT_LABELS, KIND_LABELS, documentTitle } from "@/lib/health";
 import type { TimelineItem } from "@/lib/health";
 import { useDiscardConfirm, useLeaveGuard } from "@/lib/leave-guard";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import type { BloodGroup, DocumentType, HealthEntry, HealthEntryKind, MedicalDocument, MedicalHistory } from "@/lib/types";
 
@@ -167,6 +168,8 @@ function DocumentEditDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [form, setForm] = useState({
     document_type: d.document_type,
     report_date: d.report_date,
@@ -199,6 +202,8 @@ function DocumentEditDialog({
         onMouseDown={() => !saving && requestClose()}
       >
         <div
+          ref={trapRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="doc-edit-title"

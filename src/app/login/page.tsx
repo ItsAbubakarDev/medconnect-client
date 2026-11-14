@@ -9,6 +9,7 @@ import { AuthCard } from "@/components/auth-card";
 import { Alert, Button, Field, Input, PageLoading } from "@/components/ui";
 import { messageOf } from "@/lib/api";
 import { dashboardPath, useAuth } from "@/lib/auth";
+import { formatCountdown, useRetryCooldown } from "@/lib/use-retry-cooldown";
 
 /** Only same-site paths are honoured, so ?next= can't bounce users to another site. */
 function safeNext(next: string | null): string | null {
@@ -24,6 +25,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const cooldown = useRetryCooldown(() => setError(null));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -34,6 +36,7 @@ function LoginForm() {
       router.replace(next ?? dashboardPath(session.role));
     } catch (err) {
       setError(messageOf(err));
+      cooldown.noteError(err);
       setSubmitting(false);
     }
   }
@@ -71,9 +74,9 @@ function LoginForm() {
             Forgot password?
           </Link>
         </div>
-        {error && <Alert tone="error">{error}</Alert>}
-        <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-          {submitting ? "Logging in…" : "Log in"}
+        {error && <Alert tone={cooldown.secondsLeft ? "warning" : "error"}>{error}</Alert>}
+        <Button type="submit" className="w-full" size="lg" disabled={submitting || cooldown.secondsLeft > 0}>
+          {cooldown.secondsLeft ? `Try again in ${formatCountdown(cooldown.secondsLeft)}` : submitting ? "Logging in…" : "Log in"}
         </Button>
       </form>
     </AuthCard>

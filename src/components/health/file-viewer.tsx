@@ -6,6 +6,7 @@ import { api, messageOf } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { documentLabel, documentTitle, formatSize } from "@/lib/health";
 import type { DocumentFile, MedicalDocument } from "@/lib/types";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { Alert, Button } from "../ui";
 
@@ -112,6 +113,8 @@ export function FileViewer({
   urls: FileUrls;
   onClose: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const files = useMemo(() => orderedFiles(doc.files), [doc.files]);
   const [index, setIndex] = useState(() =>
     Math.max(
@@ -181,6 +184,8 @@ export function FileViewer({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-2 sm:p-6" onMouseDown={onClose}>
       <div
+        ref={trapRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={`${documentTitle(doc)} — file ${index + 1} of ${files.length}`}

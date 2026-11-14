@@ -762,6 +762,8 @@ export interface RxPresets {
   units: string[];
   timings: { value: string; label: string; urdu: string | null }[];
   durations: number[];
+  /** Dosing notes for the doctor only (never printed), keyed by norm(`${name} ${strength}`). */
+  guides: Record<string, string>;
 }
 
 export interface MedicineOption {

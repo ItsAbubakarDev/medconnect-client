@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Alert, Button, Field, Textarea } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { addDays, clinicToday, formatDate, formatDayShort, formatTime } from "@/lib/format";
 import type { Appointment, Slot } from "@/lib/types";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 const DAYS_SHOWN = 14;
 
@@ -26,6 +27,8 @@ export function RescheduleDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [chosenDate, setChosenDate] = useState<string | null>(null);
@@ -76,6 +79,8 @@ export function RescheduleDialog({
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={onClose}>
         <div
+          ref={trapRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="reschedule-title"

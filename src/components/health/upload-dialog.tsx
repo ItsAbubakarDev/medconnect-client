@@ -8,6 +8,7 @@ import { clinicToday } from "@/lib/format";
 import { DOCUMENT_LABELS, documentTitle } from "@/lib/health";
 import { useDiscardConfirm } from "@/lib/leave-guard";
 import type { DocumentType, MedicalDocument } from "@/lib/types";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { Alert, Button, Field, Input, Select, Textarea } from "../ui";
 
@@ -20,6 +21,8 @@ type Progress = { done: number; total: number; failed: { name: string; error: st
  * be picked at once, or a whole folder — e.g. a hospital CD with a CT study's images. They
  * go up one at a time: the first creates the record, the rest join it. */
 export function UploadDialog({ addTo, onClose, onDone }: { addTo?: MedicalDocument; onClose: () => void; onDone: () => void }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [type, setType] = useState<DocumentType>("lab_report");
   // Scans usually carry their own date (DICOM): blank means "take it from the files".
   const [reportDate, setReportDate] = useState(clinicToday());
@@ -107,6 +110,8 @@ export function UploadDialog({ addTo, onClose, onDone }: { addTo?: MedicalDocume
         onMouseDown={() => !busy && requestClose()}
       >
         <div
+          ref={trapRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="upload-title"

@@ -8,6 +8,7 @@ import { formatDate } from "@/lib/format";
 import { useDiscardConfirm } from "@/lib/leave-guard";
 import type { OwnReview, PatientAppointment } from "@/lib/types";
 import { useNow } from "@/lib/use-now";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { ConfirmDialog } from "./confirm-dialog";
 import { StarPicker, Stars } from "./rating";
@@ -60,6 +61,7 @@ export function ReviewDialog({
   const [saved, setSaved] = useState<OwnReview | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
+  useFocusTrap(panel);
   // Closing with a rating or words not yet posted asks "Discard your changes?" first.
   const [initialValues] = useState(() => JSON.stringify([rating, comment, anonymous]));
   const dirty = editable && !saved && JSON.stringify([rating, comment, anonymous]) !== initialValues;

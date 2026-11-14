@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Alert, Button, Card } from "@/components/ui";
 import { ApiError, api, messageOf } from "@/lib/api";
+import { useLeaveGuard } from "@/lib/leave-guard";
 import { addDays, clinicToday, formatDate, formatTime } from "@/lib/format";
 import type {
   DiagnosisOption,
@@ -110,7 +111,7 @@ function Pill({ children, onRemove, label }: { children: ReactNode; onRemove: ()
 const fieldClass =
   "block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink placeholder:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700";
 
-function SaveState({ state, onReload }: { state: string; onReload: () => void }) {
+function SaveState({ state, onReload, onRetry }: { state: string; onReload: () => void; onRetry: () => void }) {
   if (state === "conflict") {
     return (
       <span className="text-xs font-semibold text-amber-800">
@@ -121,13 +122,28 @@ function SaveState({ state, onReload }: { state: string; onReload: () => void })
       </span>
     );
   }
-  const text: Record<string, string> = { saving: "Saving…", saved: "All changes saved", unsaved: "Saving soon…", error: "Not saved — retrying" };
+  if (state === "error" || state === "invalid") {
+    return (
+      <span role="status" className="text-xs font-semibold text-red-700">
+        {state === "error" ? "Not saved — trying again shortly. " : "Not saved — fix the problem above. "}
+        <button type="button" onClick={onRetry} className="underline">
+          Retry now
+        </button>
+      </span>
+    );
+  }
+  const text: Record<string, string> = { saving: "Saving…", saved: "All changes saved", unsaved: "Saving soon…" };
   return (
-    <span role="status" className={`text-xs ${state === "error" ? "font-semibold text-red-700" : "text-slate-500"}`}>
+    <span role="status" className="text-xs text-slate-500">
       {text[state] ?? ""}
     </span>
   );
 }
+
+/** Save states in which leaving the page would lose something. */
+const UNSAVED_STATES = new Set(["unsaved", "saving", "error", "invalid", "conflict"]);
+const RETRY_FIRST_MS = 3_000;
+const RETRY_MAX_MS = 60_000;
 
 // ---- the editor
 
@@ -160,7 +176,10 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
   const pending = useRef<RxContent | null>(null);
   const inFlight = useRef<Promise<boolean> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryDelay = useRef(RETRY_FIRST_MS);
   const draftIdRef = useRef<number | null>(null);
+  // Typing, saving, a failed save or a conflict: leaving (a link, closing the tab) asks first.
+  useLeaveGuard(draft !== null && UNSAVED_STATES.has(saveState));
 
   const adopt = useCallback((next: PrescriptionWorkspace) => {
     setWs(next);
@@ -210,6 +229,7 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
     })
       .then((saved) => {
         versionRef.current = saved.version;
+        retryDelay.current = RETRY_FIRST_MS;
         setSaveState(pending.current ? "unsaved" : "saved");
         return true;
       })
@@ -219,9 +239,18 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
           setNotice({ tone: "error", text: e.message });
           return false;
         }
-        pending.current = pending.current ?? next; // try again with the next change (or on issue)
+        pending.current = pending.current ?? next; // saved with the next change, a retry, or on issue
+        if (e instanceof ApiError && e.status === 422) {
+          // Something in it is refused: retrying the same content can't help; the doctor fixes it.
+          setSaveState("invalid");
+          setNotice({ tone: "error", text: e.message });
+          return false;
+        }
+        // The network or the server: try again by itself, waiting longer each time.
         setSaveState("error");
-        if (e instanceof ApiError && e.status === 422) setNotice({ tone: "error", text: e.message });
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => void flushRef.current(), retryDelay.current);
+        retryDelay.current = Math.min(retryDelay.current * 2, RETRY_MAX_MS);
         return false;
       });
     inFlight.current = run;
@@ -229,6 +258,10 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
     inFlight.current = null;
     return ok;
   }, []);
+  const flushRef = useRef(flush);
+  useEffect(() => {
+    flushRef.current = flush;
+  });
 
   const change = useCallback(
     (update: (c: RxContent) => RxContent) => {
@@ -244,18 +277,17 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
     [flush],
   );
 
-  // Leaving with unsaved changes: save them now, and ask the browser to hold on if needed.
+  // Leaving: try to save what's pending (the leave guard above asks the person first), and
+  // stop any retry that's waiting.
   useEffect(() => {
-    const onLeave = (e: BeforeUnloadEvent) => {
-      if (pending.current) {
-        void flush();
-        e.preventDefault();
-      }
+    const onLeave = () => {
+      if (pending.current) void flush();
     };
     window.addEventListener("beforeunload", onLeave);
     return () => {
       window.removeEventListener("beforeunload", onLeave);
       if (pending.current) void flush();
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [flush]);
 
@@ -277,7 +309,11 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
 
   async function preview() {
     if (!draft) return;
-    await flush();
+    // The preview is rendered from what's saved: an unsaved change would be missing from it.
+    if (!(await flush())) {
+      setNotice({ tone: "error", text: "Your latest changes aren't saved yet, so the preview would be out of date. Retry saving, then preview." });
+      return;
+    }
     setViewing({ id: draft.id, number: draft.number, title: `Preview of ${draft.number} (draft)` });
   }
 
@@ -615,7 +651,7 @@ export function PrescriptionEditor({ appointmentId, legacyFallback }: { appointm
               Prescription {draft.number}{" "}
               <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 align-middle text-xs font-semibold text-amber-800">Draft</span>
             </p>
-            <SaveState state={saveState} onReload={() => void load()} />
+            <SaveState state={saveState} onReload={() => void load()} onRetry={() => void flush()} />
           </div>
           {!readOnly && (
             <div className="flex flex-wrap gap-2">

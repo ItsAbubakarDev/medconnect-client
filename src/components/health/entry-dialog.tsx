@@ -8,6 +8,7 @@ import { clinicToday } from "@/lib/format";
 import { KIND_LABELS } from "@/lib/health";
 import { useDiscardConfirm } from "@/lib/leave-guard";
 import type { AllergySeverity, EntryStatus, HealthEntry, HealthEntryKind } from "@/lib/types";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { Alert, Button, Field, Input, Textarea } from "../ui";
 
@@ -72,6 +73,8 @@ export function EntryDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [form, setForm] = useState<Form>(() => initial(kind, entry));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +139,8 @@ export function EntryDialog({
         onMouseDown={() => !saving && requestClose()}
       >
         <div
+          ref={trapRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="entry-title"

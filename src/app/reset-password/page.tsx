@@ -8,6 +8,7 @@ import type { FormEvent } from "react";
 import { AuthCard } from "@/components/auth-card";
 import { Alert, Button, ButtonLink, Field, Input, PageLoading } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
+import { formatCountdown, useRetryCooldown } from "@/lib/use-retry-cooldown";
 
 function ResetForm() {
   const token = useSearchParams().get("token");
@@ -16,6 +17,7 @@ function ResetForm() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const cooldown = useRetryCooldown(() => setError(null));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -30,6 +32,7 @@ function ResetForm() {
       setDone(true);
     } catch (err) {
       setError(messageOf(err));
+      cooldown.noteError(err);
     } finally {
       setSubmitting(false);
     }
@@ -89,9 +92,9 @@ function ResetForm() {
             onChange={(e) => setConfirm(e.target.value)}
           />
         </Field>
-        {error && <Alert tone="error">{error}</Alert>}
-        <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-          {submitting ? "Saving…" : "Reset password"}
+        {error && <Alert tone={cooldown.secondsLeft ? "warning" : "error"}>{error}</Alert>}
+        <Button type="submit" className="w-full" size="lg" disabled={submitting || cooldown.secondsLeft > 0}>
+          {cooldown.secondsLeft ? `Try again in ${formatCountdown(cooldown.secondsLeft)}` : submitting ? "Saving…" : "Reset password"}
         </Button>
       </form>
     </AuthCard>

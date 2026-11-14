@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { api, messageOf } from "@/lib/api";
 import { formatDate, formatTime } from "@/lib/format";
 import type { CancellationReason, DoctorAppointment } from "@/lib/types";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { ARM_DELAY_MS } from "./confirm-dialog";
 import { Alert, Button, Field, Textarea } from "./ui";
@@ -33,6 +34,8 @@ export function CancelDialog({
   onClose: () => void;
   onCancelled: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [reason, setReason] = useState<CancellationReason>("busy");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -80,6 +83,8 @@ export function CancelDialog({
       onMouseDown={() => Date.now() - openedAt.current >= ARM_DELAY_MS && onClose()}
     >
       <div
+        ref={trapRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cancel-title"

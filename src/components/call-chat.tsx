@@ -14,6 +14,7 @@ import type { CSSProperties, FormEvent } from "react";
 
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { formatDate } from "@/lib/format";
 import { documentTitle, formatSize } from "@/lib/health";
 import type { CallDocument, MedicalDocument } from "@/lib/types";
@@ -74,6 +75,8 @@ function DocCard({ share, onOpen, mine }: { share: CallDocument; onOpen: () => v
 
 /** Pick a document from the patient's own health record to share in the call. */
 function RecordPicker({ onPick, onClose }: { onPick: (d: MedicalDocument) => void; onClose: () => void }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [docs, setDocs] = useState<MedicalDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -91,6 +94,8 @@ function RecordPicker({ onPick, onClose }: { onPick: (d: MedicalDocument) => voi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onMouseDown={onClose}>
       <div
+        ref={trapRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="record-picker-title"
@@ -409,6 +414,14 @@ export function CallChat({ appointmentId, style }: { appointmentId: number; styl
                 : `${otherName} can open it from this call${pending.doc.is_private ? ", even though it's private in your record" : ""}.`
               : `${otherName} can open it straight away. It's also added to their health record as a document from you.`}
           </p>
+          {isPatient && (
+            <p className="text-sm text-slate-600">
+              {`${otherName} can keep opening it from this appointment later. Changing your sharing settings doesn't take it back`}
+              {pending.kind === "upload" || pending.doc.source === "patient"
+                ? " — deleting it from your health record does."
+                : "."}
+            </p>
+          )}
         </ConfirmDialog>
       )}
       {viewing && (

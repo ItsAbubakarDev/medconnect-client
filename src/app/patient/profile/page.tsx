@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { RequireRole } from "@/components/require-role";
+import { SignOutEverywhere } from "@/components/sign-out-everywhere";
 import { Alert, Button, ButtonLink, Card, Container, Field, Input, PageHeader, PageLoading, Select } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -142,6 +143,11 @@ function PatientProfilePage() {
         {state?.error && <Alert tone="error">{state.error}</Alert>}
         {state?.profile && <ProfileForm profile={state.profile} welcome={welcome} />}
       </div>
+      {state?.profile && (
+        <div className="mt-6">
+          <SignOutEverywhere />
+        </div>
+      )}
     </Container>
   );
 }

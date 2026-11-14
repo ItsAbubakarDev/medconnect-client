@@ -7,12 +7,14 @@ import type { FormEvent } from "react";
 import { AuthCard } from "@/components/auth-card";
 import { Alert, Button, Field, Input } from "@/components/ui";
 import { api, messageOf } from "@/lib/api";
+import { formatCountdown, useRetryCooldown } from "@/lib/use-retry-cooldown";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const cooldown = useRetryCooldown(() => setError(null));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -27,6 +29,7 @@ export default function ForgotPasswordPage() {
       setSent(res.message);
     } catch (err) {
       setError(messageOf(err));
+      cooldown.noteError(err);
     } finally {
       setSubmitting(false);
     }
@@ -55,9 +58,9 @@ export default function ForgotPasswordPage() {
           <Field label="Email" htmlFor="email">
             <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
-          {error && <Alert tone="error">{error}</Alert>}
-          <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-            {submitting ? "Sending…" : "Send reset link"}
+          {error && <Alert tone={cooldown.secondsLeft ? "warning" : "error"}>{error}</Alert>}
+          <Button type="submit" className="w-full" size="lg" disabled={submitting || cooldown.secondsLeft > 0}>
+            {cooldown.secondsLeft ? `Try again in ${formatCountdown(cooldown.secondsLeft)}` : submitting ? "Sending…" : "Send reset link"}
           </Button>
         </form>
       )}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, messageOf } from "@/lib/api";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 import { Alert, Button } from "../ui";
 
@@ -22,6 +23,8 @@ export function PdfViewer({
   title: string;
   onClose: () => void;
 }) {
+  const trapRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(trapRef);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -59,7 +62,7 @@ export function PdfViewer({
 
   const filename = `Prescription-${number}.pdf`;
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex flex-col bg-slate-900/80">
+    <div ref={trapRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex flex-col bg-slate-900/80">
       <div className="flex flex-wrap items-center gap-2 bg-white px-4 py-3">
         <p className="min-w-0 flex-1 truncate font-semibold text-ink">{title}</p>
         {url && (

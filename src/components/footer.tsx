@@ -9,7 +9,7 @@ export function Footer() {
       <Container className="grid gap-8 py-10 sm:grid-cols-3">
         <div className="space-y-3">
           <Logo />
-          <p className="text-sm text-slate-600">Book verified doctors and consult them by video, from anywhere.</p>
+          <p className="text-sm text-slate-600">Book doctors and consult them by video, from anywhere.</p>
         </div>
         <div>
           <p className="text-sm font-semibold text-ink">For patients</p>

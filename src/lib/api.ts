@@ -1,4 +1,4 @@
-import type { Role } from "./types";
+import type { Role, TokenPair } from "./types";
 
 // Same-origin by default: next.config.ts proxies /api/* to the backend (BACKEND_URL), so an
 // HTTPS deployment never calls the plain-HTTP API directly (browsers block that).
@@ -11,9 +11,16 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Seconds to wait before trying again (429 "too many attempts" responses). */
+    public retryAfter?: number,
   ) {
     super(message);
   }
+}
+
+function retryAfterOf(res: Response): number | undefined {
+  const seconds = Number(res.headers.get("Retry-After"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,33 +118,77 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Requests. Access tokens last 30 minutes; on a 401 the refresh token is exchanged
-// once (shared across concurrent requests) and the request retried.
+// Requests. Access tokens last 30 minutes; on a 401 the refresh token is exchanged for a new
+// pair and the request retried. Refresh tokens are single-use: the server retires the old one
+// and answers with a new one, which must replace it (another use of the old one, later, would
+// count as a stolen token and log the user out everywhere).
+// - One refresh at a time per tab: concurrent requests share it.
+// - Across tabs (they share localStorage): a Web Lock, where the browser has them, lets one tab
+//   refresh while the others wait, and a tab that waited uses the pair just stored instead of
+//   spending the same token again. Without Web Locks, the server accepts the just-retired token
+//   for a few seconds and hands back the same new pair.
 // ---------------------------------------------------------------------------
 
 let refreshInFlight: Promise<boolean> | null = null;
 
-function refreshAccessToken(): Promise<boolean> {
-  const refreshToken = tokenStore.getRefresh();
-  if (!refreshToken) return Promise.resolve(false);
+/** Get a fresh access token; true if there is one to retry with. `failedAccess` is the access
+ * token the server just refused (null if none was sent). */
+function refreshTokens(failedAccess: string | null): Promise<boolean> {
   refreshInFlight ??= (async () => {
     try {
-      const res = await fetch(`${API_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      if (!res.ok) return false;
-      const data = (await res.json()) as { access_token: string };
-      tokenStore.set(data.access_token);
-      return true;
-    } catch {
-      return false;
+      // (navigator.locks is missing outside secure contexts, e.g. plain-HTTP testing on a LAN.)
+      const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+      const exchange = () => exchangeRefreshToken(failedAccess);
+      return locks ? await locks.request("mc-refresh", exchange) : await exchange();
     } finally {
       refreshInFlight = null;
     }
   })();
   return refreshInFlight;
+}
+
+async function exchangeRefreshToken(failedAccess: string | null): Promise<boolean> {
+  const access = tokenStore.getAccess();
+  if (access && access !== failedAccess) return true; // another tab refreshed meanwhile
+  const refreshToken = tokenStore.getRefresh();
+  if (!refreshToken) return false;
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch {
+    return false; // offline or server down: keep the session, the request just fails
+  }
+  if (res.status === 401) {
+    // The session is over (logged out, ended everywhere, expired), unless another tab stored a
+    // new pair meanwhile. Clearing sends the user to log in (in every tab).
+    if (tokenStore.getRefresh() === refreshToken) tokenStore.clear();
+    return tokenStore.getAccess() !== null && tokenStore.getAccess() !== failedAccess;
+  }
+  if (!res.ok) return false;
+  try {
+    const pair = (await res.json()) as TokenPair;
+    tokenStore.set(pair.access_token, pair.refresh_token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sends a request with the access token, refreshing it once on a 401 and retrying. */
+async function withSession(send: (access: string | null) => Promise<Response>, auth: boolean): Promise<Response> {
+  const access = auth ? tokenStore.getAccess() : null;
+  const res = await send(access);
+  if (res.status !== 401 || !auth || !tokenStore.getRefresh()) return res;
+  if (!(await refreshTokens(access))) return res;
+  const retryAccess = tokenStore.getAccess();
+  const retried = await send(retryAccess);
+  // Refused even with a fresh token: the session is over (unless it changed meanwhile).
+  if (retried.status === 401 && tokenStore.getAccess() === retryAccess) tokenStore.clear();
+  return retried;
 }
 
 interface RequestOptions {
@@ -157,10 +208,9 @@ export async function api<T>(
   { method = "GET", body, auth = true, signal, responseType = "json" }: RequestOptions = {},
 ): Promise<T> {
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
-  const send = async () => {
+  const send = async (access: string | null) => {
     const headers: Record<string, string> = {};
     if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
-    const access = auth ? tokenStore.getAccess() : null;
     if (access) headers.Authorization = `Bearer ${access}`;
     try {
       return await fetch(`${API_URL}${path}`, {
@@ -175,17 +225,11 @@ export async function api<T>(
     }
   };
 
-  let res = await send();
-  if (res.status === 401 && auth && tokenStore.getRefresh()) {
-    if (await refreshAccessToken()) {
-      res = await send();
-    }
-    if (res.status === 401) tokenStore.clear(); // session is over; the UI sends the user to login
-  }
+  const res = await withSession(send, auth);
 
   if (responseType === "blob" && res.ok) return (await res.blob()) as T;
   const data: unknown = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, errorMessage(data, res.status));
+  if (!res.ok) throw new ApiError(res.status, errorMessage(data, res.status), retryAfterOf(res));
   return data as T;
 }
 
@@ -199,9 +243,8 @@ export function messageOf(error: unknown): string {
  * request (not 2xx) throws an ApiError with the server's message.
  */
 export async function apiStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-  const send = async () => {
+  const send = async (access: string | null) => {
     const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "text/event-stream" };
-    const access = tokenStore.getAccess();
     if (access) headers.Authorization = `Bearer ${access}`;
     try {
       return await fetch(`${API_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body), signal });
@@ -210,14 +253,10 @@ export async function apiStream(path: string, body: unknown, signal?: AbortSigna
       throw new ApiError(0, "Can't reach the MedConnect server. Make sure the backend is running.");
     }
   };
-  let res = await send();
-  if (res.status === 401 && tokenStore.getRefresh()) {
-    if (await refreshAccessToken()) res = await send();
-    if (res.status === 401) tokenStore.clear();
-  }
+  const res = await withSession(send, true);
   if (!res.ok) {
     const data: unknown = await res.json().catch(() => null);
-    throw new ApiError(res.status, errorMessage(data, res.status));
+    throw new ApiError(res.status, errorMessage(data, res.status), retryAfterOf(res));
   }
   return res;
 }
